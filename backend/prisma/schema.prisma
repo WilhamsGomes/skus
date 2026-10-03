@@ -1,0 +1,26 @@
+// Modelo de PERSISTÊNCIA. Não é o modelo de domínio: os adapters em
+// */infrastructure/persistence fazem o mapeamento explícito entre os dois.
+// A URL de conexão fica em prisma.config.ts (Prisma 7).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Um item do lote, identificado por run_id + seq (identidade definida pelo contrato).
+// Sem FK para uma tabela de execuções: mensagens de /process podem chegar antes
+// de termos persistido a resposta de /burst.
+model BatchItem {
+  runId      String   @map("run_id")
+  seq        Int
+  sku        String
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@id([runId, seq])
+  @@map("batch_items")
+}
