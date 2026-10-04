@@ -1,7 +1,6 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
 
 /** Campos do payload que não podem aparecer em log (credenciais da plataforma). */
 const SENSITIVE_FIELDS = ['token'];
@@ -19,17 +18,15 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const hasBody = typeof body === 'object' && body !== null && Object.keys(body).length > 0;
     this.logger.log(`→ ${method} ${originalUrl}${hasBody ? ` | ${JSON.stringify(maskSensitive(body))}` : ''}`);
 
-    return next.handle().pipe(
-      tap({
-        next: () => {
-          this.logger.log(`← ${method} ${originalUrl} | ${response.statusCode} | ${Date.now() - startedAt}ms`);
-        },
-        error: (err: unknown) => {
-          const status = typeof err === 'object' && err !== null && 'status' in err ? err.status : 500;
-          this.logger.error(`← ${method} ${originalUrl} | ${status} | ${Date.now() - startedAt}ms`);
-        },
-      }),
-    );
+    // Loga no 'finish' e não no pipe: erros passam por aqui antes dos exception filters,
+    // então só depois do envio o status é o que o cliente realmente recebeu.
+    response.once('finish', () => {
+      const line = `← ${method} ${originalUrl} | ${response.statusCode} | ${Date.now() - startedAt}ms`;
+      if (response.statusCode >= 400) this.logger.error(line);
+      else this.logger.log(line);
+    });
+
+    return next.handle();
   }
 }
 
