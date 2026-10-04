@@ -1,11 +1,15 @@
 import "reflect-metadata";
 import { existsSync } from "node:fs";
+import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { APP_CONFIG, type AppConfig } from "./shared/config/app-config";
 import { configureHttp } from "./shared/infra/http/http.config";
-import { configureSwagger } from "./shared/infra/http/swagger.config";
+import { configureSwagger, SWAGGER_JSON_PATH, SWAGGER_PATH } from "./shared/infra/http/swagger.config";
 import { HttpLoggingInterceptor } from "./shared/interceptors/http-logging.interceptor";
+import { highlight } from "./shared/utils/highlight";
+
+const logger = new Logger("Bootstrap");
 
 async function bootstrap(): Promise<void> {
   if (existsSync(".env")) process.loadEnvFile(".env");
@@ -17,6 +21,14 @@ async function bootstrap(): Promise<void> {
 
   const { port } = app.get<AppConfig>(APP_CONFIG);
   await app.listen(port);
+
+  const baseUrl = `http://localhost:${port}`;
+  logger.log(`API rodando em ${highlight(baseUrl)}`);
+  logger.log(`Swagger em ${highlight(`${baseUrl}/${SWAGGER_PATH}`)}`);
+  logger.log(`Swagger JSON em ${highlight(`${baseUrl}/${SWAGGER_JSON_PATH}`)}`);
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  logger.error(`Falha ao iniciar a aplicação: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});
