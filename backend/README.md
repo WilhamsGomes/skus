@@ -23,13 +23,22 @@ npm test                 # testes unitários e de controller (não precisam de D
 npm run build
 ```
 
-Para expor publicamente: `ngrok http 4000`. **O registro na plataforma não é feito automaticamente.**
+Para expor publicamente e registrar o serviço (o app precisa estar no ar: a plataforma chama `/check` durante o registro):
+
+```bash
+ngrok http 4000
+curl -X POST http://localhost:4000/registration   -H "content-type: application/json"   -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok.app"}'
+```
+
+Documentação interativa (Swagger) em `http://localhost:4000/docs`.
 
 ## Endpoints implementados
 
 | Endpoint | Comportamento |
 |---|---|
 | `GET /health` | 200 com `{status, checks: {database, redis}}`; 503 se alguma dependência estiver fora. |
+| `POST /registration` | Chama `POST /register` da plataforma e salva `cid`/`token` em `registrations`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede/contrato. **Não devolve o token** (endpoint exposto pelo túnel). |
+| `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
 | `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
 | `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. **Ainda não enfileira o enriquecimento** (próxima etapa). |
 
@@ -50,8 +59,12 @@ src/
 │   └── interceptors/                # log de requisições HTTP
 └── modules/
     ├── health/                      # endpoint operacional (fala direto com a infra)
-    ├── registration/                # handshake /check; depois: registro e credenciais
-    │   └── presentation/            # controllers + dto/
+    ├── registration/                # handshake /check, registro e credenciais (cid/token)
+    │   ├── domain/                  # tipos Registration / PlatformCredentials
+    │   ├── application/             # RegisterWebhookUseCase, erros e ports/
+    │   ├── infra/                   # http/ (POST /register) e repositories/ (Prisma)
+    │   ├── presentation/            # controllers + dto/ (request/response separados)
+    │   └── registration.module.ts   # liga portas a adapters (useClass); exporta RegistrationRepository
     └── batch-processing/            # recebimento, enriquecimento, consolidação, callback
         ├── domain/                  # TypeScript puro
         ├── application/             # casos de uso + portas
@@ -62,8 +75,24 @@ src/
 Testes ficam em `__tests__/` ao lado do código testado.
 
 **Direção das dependências:** `presentation → application → domain`. `infra` implementa as portas
-declaradas em `application`. Domínio, casos de uso e adapters são classes sem decorators; o Nest aparece só em
-controllers, DTOs e nos `*.module.ts`, que montam tudo via `useFactory` e tokens `Symbol`.
+declaradas em `application`. O domínio é TypeScript puro, sem Nest.
+
+**Injeção de dependência:** cada porta é uma `abstract class` (e não `interface`, que some na compilação e não
+pode ser token do Nest). O `*.module.ts` liga porta e implementação com `{ provide: Porta, useClass: Adapter }`,
+e quem consome injeta só pelo tipo, sem `@Inject(TOKEN)`:
+
+```ts
+// registration.module.ts
+{ provide: RegistrationRepository, useClass: PrismaRegistrationRepository }
+
+// register-webhook.use-case.ts — depende da abstração, não do Prisma
+constructor(private readonly repository: RegistrationRepository) {}
+```
+
+Trade-off aceito: casos de uso e adapters levam `@Injectable()`, ou seja, `application/` conhece o Nest. Em troca,
+o module fica enxuto e o padrão é o da documentação oficial. Um teste de wiring (`registration.module.spec.ts`)
+compila o módulo real para pegar erros de DI. Por exemplo, `import type` de uma porta num construtor
+decorado apaga o token e quebra a injeção só em runtime.
 
 **Por que dois módulos e não mais:** recebimento, enriquecimento e consolidação compartilham o mesmo modelo
 (o item do lote e sua execução) e a mesma regra de completude. Separá-los criaria contextos acoplados pelo mesmo dado.
@@ -78,7 +107,7 @@ Registro/credenciais é outra capacidade, com ciclo de vida próprio.
 | `BatchItem` | Entidade (agregado próprio) | Ciclo de vida `RECEIVED → ENRICHED / FAILED`, com estados terminais imutáveis. | planejado |
 | `EnrichmentResult` | Value object | price ≥ 0, stock inteiro ≥ 0. | planejado |
 | `BatchRun` | Agregado | `total` esperado e status do callback. Decide completude por **contagem**, sem carregar itens. | planejado |
-| Credenciais (cid, token) | Registro simples | Sem comportamento: não vira entidade. | planejado |
+| Credenciais (cid, token) | Registro simples | Sem comportamento: não vira entidade. | ✅ |
 
 O item é um agregado separado da execução: cada mensagem altera só o próprio item, sem disputar
 lock com as outras. Isso também evita carregar 20.000 itens para decidir algo.
@@ -100,7 +129,7 @@ Casos de uso e portas previstos:
 
 | Caso de uso | Portas | Notas |
 |---|---|---|
-| `RegisterWebhook` (comando manual) | `PlatformRegistrationClient`, `CredentialsStore` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
+| `RegisterWebhook` ✅ (`POST /registration`) | `PlatformRegistrationGateway`, `RegistrationRepository` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
 | `RequestBatch` | `BatchPlatformClient`, `BatchRunStore.open` (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. |
 | `ReceiveBatchItem` ✅ + publicação | `EnrichmentJobPublisher` | Após gravar, publica job com `jobId = run_id:seq`. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
 | `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |

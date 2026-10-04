@@ -24,3 +24,16 @@ model BatchItem {
   @@id([runId, seq])
   @@map("batch_items")
 }
+
+// Credenciais devolvidas pelo POST /register. Cada registro gera um novo cid;
+// o mais recente é o vigente. O token fica em texto puro: é credencial de ambiente de teste.
+model Registration {
+  cid          String   @id
+  token        String
+  name         String
+  webhook      String
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz(3)
+
+  @@index([registeredAt])
+  @@map("registrations")
+}

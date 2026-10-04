@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { plainToInstance, Type } from 'class-transformer';
-import { IsInt, IsString, Matches, Max, Min, validateSync } from 'class-validator';
+import { IsInt, IsString, IsUrl, Matches, Max, Min, validateSync } from 'class-validator';
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
@@ -9,6 +9,8 @@ export interface AppConfig {
   readonly port: number;
   readonly databaseUrl: string;
   readonly redisUrl: string;
+  /** Base URL da plataforma (register, burst, enrich, callback), sem barra final. */
+  readonly platformBaseUrl: string;
 }
 
 class EnvironmentVariables {
@@ -25,6 +27,9 @@ class EnvironmentVariables {
   @IsString()
   @Matches(/^rediss?:\/\/.+/, { message: 'REDIS_URL must be a redis:// or rediss:// URL' })
   REDIS_URL!: string;
+
+  @IsUrl({ protocols: ['https', 'http'], require_protocol: true, require_tld: false })
+  PLATFORM_BASE_URL = 'https://dev-wdu-ped-test-1014944555984.us-central1.run.app';
 }
 
 /** Valida o ambiente no startup; falha rápido com todas as violações de uma vez. */
@@ -41,5 +46,6 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     port: vars.PORT,
     databaseUrl: vars.DATABASE_URL,
     redisUrl: vars.REDIS_URL,
+    platformBaseUrl: vars.PLATFORM_BASE_URL.replace(/\/+$/, ''),
   };
 }
