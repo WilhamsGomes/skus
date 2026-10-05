@@ -14,3 +14,10 @@ export class RunNotFoundError extends Error {
     this.name = "RunNotFoundError";
   }
 }
+
+export class RunNotCompletedError extends Error {
+  constructor(readonly runId: string) {
+    super(`Run ${runId} is not completed yet`);
+    this.name = "RunNotCompletedError";
+  }
+}

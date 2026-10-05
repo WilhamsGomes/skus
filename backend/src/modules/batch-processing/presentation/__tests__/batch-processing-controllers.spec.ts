@@ -9,12 +9,15 @@ import {
 } from '../../../registration/application/registration.errors';
 import { ReceiveBatchItemUseCase } from '../../application/receive-batch-item.use-case';
 import { RequestBatchUseCase } from '../../application/request-batch.use-case';
+import { ResendBatchCallbackUseCase } from '../../application/resend-batch-callback.use-case';
+import { RunNotCompletedError, RunNotFoundError } from '../../application/callback.errors';
 import { BatchController } from '../controllers/batch.controller';
 import { ProcessController } from '../controllers/process.controller';
 
 describe('Batch processing controllers', () => {
   const receiveBatchItem = { execute: jest.fn() };
   const requestBatch = { execute: jest.fn() };
+  const resendCallback = { execute: jest.fn() };
   let app: INestApplication<App>;
 
   beforeAll(async () => {
@@ -23,6 +26,7 @@ describe('Batch processing controllers', () => {
       providers: [
         { provide: ReceiveBatchItemUseCase, useValue: receiveBatchItem },
         { provide: RequestBatchUseCase, useValue: requestBatch },
+        { provide: ResendBatchCallbackUseCase, useValue: resendCallback },
       ],
     }).compile();
     app = configureHttp(moduleRef.createNestApplication());
@@ -89,6 +93,27 @@ describe('Batch processing controllers', () => {
       requestBatch.execute.mockRejectedValue(new PlatformUnavailableError('POST /burst responded 401'));
 
       await request(app.getHttpServer()).post('/batches').expect(502);
+    });
+  });
+
+  describe('POST /batches/:runId/callback', () => {
+    it('schedules the callback again and returns the outcome with 202', async () => {
+      resendCallback.execute.mockResolvedValue('added');
+
+      await request(app.getHttpServer()).post('/batches/clx-run/callback').expect(202, { outcome: 'added' });
+      expect(resendCallback.execute).toHaveBeenCalledWith('clx-run');
+    });
+
+    it('maps an unknown run to 404', async () => {
+      resendCallback.execute.mockRejectedValue(new RunNotFoundError('clx-run'));
+
+      await request(app.getHttpServer()).post('/batches/clx-run/callback').expect(404);
+    });
+
+    it('maps a run that is still open to 409', async () => {
+      resendCallback.execute.mockRejectedValue(new RunNotCompletedError('clx-run'));
+
+      await request(app.getHttpServer()).post('/batches/clx-run/callback').expect(409);
     });
   });
 });

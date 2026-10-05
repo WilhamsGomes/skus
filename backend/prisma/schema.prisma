@@ -25,7 +25,21 @@ model BatchRun {
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  deliveries CallbackDelivery[]
+
   @@map("batch_runs")
+}
+
+model CallbackDelivery {
+  id     Int      @id @default(autoincrement())
+  runId  String   @map("run_id")
+  run    BatchRun @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  sentAt DateTime @default(now()) @map("sent_at") @db.Timestamptz(3)
+  report Json?
+
+  @@index([runId, sentAt])
+  @@index([sentAt])
+  @@map("callback_deliveries")
 }
 
 enum BatchRunStatus {

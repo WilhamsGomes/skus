@@ -12,6 +12,7 @@ import { EnrichmentClient } from "./application/ports/enrichment.client";
 import { ReceiveBatchItemUseCase } from "./application/receive-batch-item.use-case";
 import { ReconcileStaleWorkUseCase } from "./application/reconcile-stale-work.use-case";
 import { RequestBatchUseCase } from "./application/request-batch.use-case";
+import { ResendBatchCallbackUseCase } from "./application/resend-batch-callback.use-case";
 import { SendBatchCallbackUseCase } from "./application/send-batch-callback.use-case";
 import { BatchPlatformHttpClient } from "./infra/http/batch-platform.http-client";
 import { EnrichmentHttpClient } from "./infra/http/enrichment.http-client";
@@ -70,7 +71,9 @@ import { ProcessController } from "./presentation/controllers/process.controller
     CloseBatchRunUseCase,
     SendBatchCallbackUseCase,
     ReconcileStaleWorkUseCase,
+    ResendBatchCallbackUseCase,
     StaleWorkReconciler,
   ],
+  exports: [EnrichmentQueue, CallbackQueue],
 })
 export class BatchProcessingModule {}

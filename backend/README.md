@@ -27,23 +27,29 @@ Para expor publicamente e registrar o serviço (o app precisa estar no ar: a pla
 
 ```bash
 ngrok http 4000
-curl -X POST http://localhost:4000/registration   -H "content-type: application/json"   -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok.app"}'
-curl -X POST http://localhost:4000/batches   # pede um lote; as mensagens chegam em /process
+TOKEN=$(curl -s -X POST http://localhost:4000/auth/login -H "content-type: application/json"   -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"accessToken":"\([^"]*\)".*//p')
+curl -X POST http://localhost:4000/registration -H "authorization: Bearer $TOKEN"   -H "content-type: application/json" -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok.app"}'
+curl -X POST http://localhost:4000/batches -H "authorization: Bearer $TOKEN"   # as mensagens chegam em /process
 ```
 
 Documentação interativa (Swagger) em `http://localhost:4000/docs`.
-Painel da fila de enriquecimento (Bull Board) em `http://localhost:4000/queues`: só responde para acesso direto em `localhost`; pelo túnel (header `x-forwarded-for` ou host externo) devolve 404.
+Ou use o painel em `../frontend` (`npm run dev`, login `admin`/`admin`), que faz o registro e pede lotes pela interface.
+
+Painel das filas (Bull Board) em `http://localhost:4000/queues`: só responde para acesso direto em `localhost`; pelo túnel (header `x-forwarded-for` ou host externo) devolve 404.
 
 ## Endpoints implementados
 
 | Endpoint | Comportamento |
 |---|---|
 | `GET /health` | 200 com `{status, checks: {database, redis}}`; 503 se alguma dependência estiver fora. |
+| `POST /auth/login` | Login único do dashboard (`DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD`, padrão `admin`/`admin`); devolve um JWT de 8 h assinado com `AUTH_SECRET`. Um guard global exige `Authorization: Bearer` em tudo, exceto `/check`, `/process` e o próprio login. |
 | `POST /registration` | Chama `POST /register` da plataforma e salva `cid`/`token` em `registrations`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede/contrato. **Não devolve o token** (endpoint exposto pelo túnel). |
 | `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
 | `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
 | `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. Depois do insert publica o job `enrich` na fila BullMQ `enrichment` (`jobId = run_id-seq`), com teto de 200 ms; se a publicação falhar, responde 200 mesmo assim. O `EnrichmentWorker` (mesmo processo) consome a fila e chama `GET /enrich/:sku`. |
 | `POST /batches` | Chama `POST /burst/:cid` da plataforma com `x-token` do registro vigente e devolve `{runId, total, startedAt}`. A plataforma passa a chamar `/process`. 409 se o serviço não foi registrado; 502 para falha de rede/contrato. Grava a execução em `batch_runs` (`run_id`, `cid`, `total`, `OPEN`) com upsert. |
+| `POST /batches/:runId/callback` | Reenvia o callback de um lote concluído (202 com `added`/`retried`/`already_queued`); cada envio gera um novo relatório e uma linha em `callback_deliveries`. 404 lote inexistente; 409 lote ainda aberto. |
+| `GET /dashboard/*` | Leitura para o painel: `overview`, `runs`, `runs/:runId`, `items`, `queues`, `cache`, `deliveries`, `deliveries/:id`, `registrations`. Consultas diretas no Prisma/BullMQ/Redis, sem casos de uso: é só projeção, sem regra de negócio. |
 
 ## Arquitetura
 

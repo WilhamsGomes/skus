@@ -1,9 +1,11 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../../../shared/auth/public.decorator';
 import { ReceiveBatchItemUseCase } from '../../application/receive-batch-item.use-case';
 import { ProcessRequestDto } from '../dto/process.request.dto';
 import { ProcessResponseDto } from '../dto/process.response.dto';
 
+@Public()
 @ApiTags('platform webhook')
 @Controller('process')
 export class ProcessController {

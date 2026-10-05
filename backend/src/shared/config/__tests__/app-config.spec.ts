@@ -12,6 +12,9 @@ describe('loadAppConfig', () => {
       databaseUrl: valid.DATABASE_URL,
       redisUrl: valid.REDIS_URL,
       platformBaseUrl: 'https://dev-wdu-ped-test-1014944555984.us-central1.run.app',
+      dashboardUsername: 'admin',
+      dashboardPassword: 'admin',
+      authSecret: 'dev-only-secret-change-me',
     });
   });
 
@@ -23,6 +26,10 @@ describe('loadAppConfig', () => {
     expect(loadAppConfig({ ...valid, PLATFORM_BASE_URL: 'http://localhost:9000/' }).platformBaseUrl).toBe(
       'http://localhost:9000',
     );
+  });
+
+  it('rejects a short AUTH_SECRET', () => {
+    expect(() => loadAppConfig({ ...valid, AUTH_SECRET: 'short' })).toThrow(/AUTH_SECRET/);
   });
 
   it('reports every invalid variable at once', () => {

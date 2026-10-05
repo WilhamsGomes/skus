@@ -1,8 +1,10 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../../../shared/auth/public.decorator';
 import { CheckRequestDto } from '../dto/check.request.dto';
 import { CheckResponseDto } from '../dto/check.response.dto';
 
+@Public()
 @ApiTags('platform webhook')
 @Controller('check')
 export class CheckController {

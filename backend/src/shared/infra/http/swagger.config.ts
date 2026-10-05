@@ -11,8 +11,10 @@ export function configureSwagger(app: INestApplication): void {
       'Recebe lotes de SKUs, enriquece de forma assíncrona e devolve o resultado consolidado.',
     )
     .setVersion('0.1.0')
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
+  document.security = [{ bearer: [] }];
   SwaggerModule.setup(SWAGGER_PATH, app, document, { jsonDocumentUrl: SWAGGER_JSON_PATH });
 }

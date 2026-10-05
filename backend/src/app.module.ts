@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
+import { AuthModule } from "./modules/auth/auth.module";
 import { BatchProcessingModule } from "./modules/batch-processing/batch-processing.module";
+import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { RegistrationModule } from "./modules/registration/registration.module";
 import { ConfigModule } from "./shared/config/config.module";
 import { PrismaModule } from "./shared/infra/prisma/prisma.module";
@@ -10,8 +12,10 @@ import { RedisModule } from "./shared/infra/redis/redis.module";
     ConfigModule,
     PrismaModule,
     RedisModule,
+    AuthModule,
     RegistrationModule,
     BatchProcessingModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

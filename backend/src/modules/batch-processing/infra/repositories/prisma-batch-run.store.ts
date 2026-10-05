@@ -58,15 +58,19 @@ export class PrismaBatchRunStore implements BatchRunStore {
   }
 
   async markCallbackSent(runId: string, report: unknown): Promise<void> {
-    await this.prisma.batchRun.update({
-      where: { runId },
-      data: {
-        callbackSentAt: new Date(),
-        callbackReport:
-          report === null || report === undefined
-            ? Prisma.JsonNull
-            : (report as Prisma.InputJsonValue),
-      },
-    });
+    const json =
+      report === null || report === undefined
+        ? Prisma.JsonNull
+        : (report as Prisma.InputJsonValue);
+    const sentAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.batchRun.update({
+        where: { runId },
+        data: { callbackSentAt: sentAt, callbackReport: json },
+      }),
+      this.prisma.callbackDelivery.create({
+        data: { runId, sentAt, report: json },
+      }),
+    ]);
   }
 }

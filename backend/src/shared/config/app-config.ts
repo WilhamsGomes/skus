@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { plainToInstance, Type } from 'class-transformer';
-import { IsInt, IsString, IsUrl, Matches, Max, Min, validateSync } from 'class-validator';
+import { IsInt, IsString, IsUrl, Matches, Max, Min, MinLength, validateSync } from 'class-validator';
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
@@ -11,6 +11,9 @@ export interface AppConfig {
   readonly redisUrl: string;
   /** Base URL da plataforma (register, burst, enrich, callback), sem barra final. */
   readonly platformBaseUrl: string;
+  readonly dashboardUsername: string;
+  readonly dashboardPassword: string;
+  readonly authSecret: string;
 }
 
 class EnvironmentVariables {
@@ -30,6 +33,18 @@ class EnvironmentVariables {
 
   @IsUrl({ protocols: ['https', 'http'], require_protocol: true, require_tld: false })
   PLATFORM_BASE_URL = 'https://dev-wdu-ped-test-1014944555984.us-central1.run.app';
+
+  @IsString()
+  @MinLength(1)
+  DASHBOARD_USERNAME = 'admin';
+
+  @IsString()
+  @MinLength(1)
+  DASHBOARD_PASSWORD = 'admin';
+
+  @IsString()
+  @MinLength(16)
+  AUTH_SECRET = 'dev-only-secret-change-me';
 }
 
 /** Valida o ambiente no startup; falha rápido com todas as violações de uma vez. */
@@ -47,5 +62,8 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     databaseUrl: vars.DATABASE_URL,
     redisUrl: vars.REDIS_URL,
     platformBaseUrl: vars.PLATFORM_BASE_URL.replace(/\/+$/, ''),
+    dashboardUsername: vars.DASHBOARD_USERNAME,
+    dashboardPassword: vars.DASHBOARD_PASSWORD,
+    authSecret: vars.AUTH_SECRET,
   };
 }
