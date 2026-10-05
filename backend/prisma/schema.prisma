@@ -12,17 +12,55 @@ datasource db {
   provider = "postgresql"
 }
 
+// Uma execução pedida via POST /burst. `total` vem da plataforma e decide quando o lote está completo.
+// `cid` é o do registro usado no burst: o callback precisa da mesma credencial, mesmo que haja um registro mais novo.
+model BatchRun {
+  runId     String         @id @map("run_id")
+  cid       String
+  total     Int
+  status    BatchRunStatus @default(OPEN)
+  startedAt DateTime       @map("started_at") @db.Timestamptz(3)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("batch_runs")
+}
+
+enum BatchRunStatus {
+  OPEN // recebendo e enriquecendo itens
+  COMPLETED // callback enviado
+
+  @@map("batch_run_status")
+}
+
 // Um item do lote, identificado por run_id + seq (identidade definida pelo contrato).
-// Sem FK para uma tabela de execuções: mensagens de /process podem chegar antes
-// de termos persistido a resposta de /burst.
+// Sem FK para batch_runs: mensagens de /process podem chegar antes de termos persistido a resposta de /burst.
 model BatchItem {
-  runId      String   @map("run_id")
+  runId      String          @map("run_id")
   seq        Int
   sku        String
-  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  status     BatchItemStatus @default(RECEIVED)
+  // Float (double precision) e não Decimal: o preço só é repassado ao callback e não deve ser arredondado.
+  price      Float?
+  stock      Int?
+  attempts   Int             @default(0)
+  lastError  String?         @map("last_error")
+  receivedAt DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  updatedAt  DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@id([runId, seq])
+  // Contagem de concluídos por execução e varredura de itens parados em RECEIVED.
+  @@index([runId, status])
+  @@index([status, updatedAt])
   @@map("batch_items")
+}
+
+enum BatchItemStatus {
+  RECEIVED // gravado no /process, aguardando enriquecimento
+  ENRICHED // price e stock preenchidos
+  FAILED // falha definitiva (ex.: 404 SKU inválido)
+
+  @@map("batch_item_status")
 }
 
 // Credenciais devolvidas pelo POST /register. Cada registro gera um novo cid;

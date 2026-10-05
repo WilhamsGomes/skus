@@ -28,6 +28,7 @@ Para expor publicamente e registrar o serviço (o app precisa estar no ar: a pla
 ```bash
 ngrok http 4000
 curl -X POST http://localhost:4000/registration   -H "content-type: application/json"   -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok.app"}'
+curl -X POST http://localhost:4000/batches   # pede um lote; as mensagens chegam em /process
 ```
 
 Documentação interativa (Swagger) em `http://localhost:4000/docs`.
@@ -41,6 +42,7 @@ Documentação interativa (Swagger) em `http://localhost:4000/docs`.
 | `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
 | `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
 | `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. **Ainda não enfileira o enriquecimento** (próxima etapa). |
+| `POST /batches` | Chama `POST /burst/:cid` da plataforma com `x-token` do registro vigente e devolve `{runId, total, startedAt}`. A plataforma passa a chamar `/process`. 409 se o serviço não foi registrado; 502 para falha de rede/contrato. Grava a execução em `batch_runs` (`run_id`, `cid`, `total`, `OPEN`) com upsert. |
 
 ## Arquitetura
 
@@ -102,11 +104,10 @@ Registro/credenciais é outra capacidade, com ciclo de vida próprio.
 
 | Conceito | Tipo | Justificativa | Estado |
 |---|---|---|---|
-| `ItemKey` (run_id + seq) | Value object | Identidade definida pelo contrato; chave de deduplicação e, depois, `jobId`. | ✅ |
-| `ReceivedItem` | Value object | Invariantes da mensagem recebida (seq inteiro ≥ 0, SKU não vazio e preservado). | ✅ |
+| `ReceivedItem` | Value object | Invariantes da mensagem recebida (seq inteiro ≥ 0, SKU não vazio e preservado). `key` = `run_id:seq`: chave de deduplicação e, depois, `jobId`. | ✅ |
 | `BatchItem` | Entidade (agregado próprio) | Ciclo de vida `RECEIVED → ENRICHED / FAILED`, com estados terminais imutáveis. | planejado |
 | `EnrichmentResult` | Value object | price ≥ 0, stock inteiro ≥ 0. | planejado |
-| `BatchRun` | Agregado | `total` esperado e status do callback. Decide completude por **contagem**, sem carregar itens. | planejado |
+| `BatchRun` | Agregado | `total` esperado e status do callback (`OPEN → COMPLETED`). Decide completude por **contagem**, sem carregar itens. | dados ✅, regra de completude planejada |
 | Credenciais (cid, token) | Registro simples | Sem comportamento: não vira entidade. | ✅ |
 
 O item é um agregado separado da execução: cada mensagem altera só o próprio item, sem disputar
@@ -130,7 +131,7 @@ Casos de uso e portas previstos:
 | Caso de uso | Portas | Notas |
 |---|---|---|
 | `RegisterWebhook` ✅ (`POST /registration`) | `PlatformRegistrationGateway`, `RegistrationRepository` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
-| `RequestBatch` | `BatchPlatformClient`, `BatchRunStore.open` (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. |
+| `RequestBatch` ✅ (`POST /batches`) | `BatchPlatformClient` ✅, `BatchRunStore.open` ✅ (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. Guarda o `cid` do burst para o callback. |
 | `ReceiveBatchItem` ✅ + publicação | `EnrichmentJobPublisher` | Após gravar, publica job com `jobId = run_id:seq`. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
 | `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |
 | `EnrichBatchItem` (worker) | `EnrichmentClient`, `BatchItemStore.recordEnrichment` | Update condicional (só se ainda não terminal), o que torna jobs repetidos inofensivos. |
