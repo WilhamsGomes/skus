@@ -41,7 +41,7 @@ Documentação interativa (Swagger) em `http://localhost:4000/docs`.
 | `POST /registration` | Chama `POST /register` da plataforma e salva `cid`/`token` em `registrations`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede/contrato. **Não devolve o token** (endpoint exposto pelo túnel). |
 | `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
 | `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
-| `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. **Ainda não enfileira o enriquecimento** (próxima etapa). |
+| `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. Depois do insert publica o job `enrich` na fila BullMQ `enrichment` (`jobId = run_id-seq`), com teto de 200 ms; se a publicação falhar, responde 200 mesmo assim. **Ainda não há worker** consumindo a fila. |
 | `POST /batches` | Chama `POST /burst/:cid` da plataforma com `x-token` do registro vigente e devolve `{runId, total, startedAt}`. A plataforma passa a chamar `/process`. 409 se o serviço não foi registrado; 502 para falha de rede/contrato. Grava a execução em `batch_runs` (`run_id`, `cid`, `total`, `OPEN`) com upsert. |
 
 ## Arquitetura
@@ -132,7 +132,7 @@ Casos de uso e portas previstos:
 |---|---|---|
 | `RegisterWebhook` ✅ (`POST /registration`) | `PlatformRegistrationGateway`, `RegistrationRepository` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
 | `RequestBatch` ✅ (`POST /batches`) | `BatchPlatformClient` ✅, `BatchRunStore.open` ✅ (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. Guarda o `cid` do burst para o callback. |
-| `ReceiveBatchItem` ✅ + publicação | `EnrichmentJobPublisher` | Após gravar, publica job com `jobId = run_id:seq`. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
+| `ReceiveBatchItem` ✅ + publicação ✅ | `EnrichmentJobPublisher` ✅ | Após gravar, publica job com `jobId = run_id-seq` (o BullMQ não aceita `:`), também nas duplicatas. Publish limitado a 200 ms: `queue.add` espera a conexão e, com o Redis fora, ficaria pendurado. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
 | `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |
 | `EnrichBatchItem` (worker) | `EnrichmentClient`, `BatchItemStore.recordEnrichment` | Update condicional (só se ainda não terminal), o que torna jobs repetidos inofensivos. |
 | `ConsolidateBatch` | `BatchRunStore.claimForCallback`, `BatchResultReader`, `CallbackClient` | Claim atômico: só se `concluídos == total` e status permitir. Assim nenhum callback sai de lote incompleto. |

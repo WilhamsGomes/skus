@@ -18,7 +18,6 @@ export class ReceivedItem {
     readonly sku: string,
   ) {}
 
-  /** Valida e monta o objeto em memória. Não persiste nem publica nada. */
   static from(props: {
     runId: string;
     seq: number;
@@ -37,7 +36,6 @@ export class ReceivedItem {
     return new ReceivedItem(props.runId, props.seq, props.sku);
   }
 
-  /** Chave de deduplicação; depois também será o jobId da fila. */
   get key(): string {
     return `${this.runId}:${this.seq}`;
   }

@@ -4,10 +4,13 @@ import { PrismaModule } from '../../../shared/infra/prisma/prisma.module';
 import { BatchItemInbox } from '../application/ports/batch-item.inbox';
 import { BatchPlatformClient } from '../application/ports/batch-platform.client';
 import { BatchRunStore } from '../application/ports/batch-run.store';
+import { EnrichmentJobPublisher } from '../application/ports/enrichment-job.publisher';
 import { ReceiveBatchItemUseCase } from '../application/receive-batch-item.use-case';
 import { RequestBatchUseCase } from '../application/request-batch.use-case';
 import { BatchProcessingModule } from '../batch-processing.module';
 import { BatchPlatformHttpClient } from '../infra/http/batch-platform.http-client';
+import { BullMqEnrichmentJobPublisher } from '../infra/queue/bullmq-enrichment-job.publisher';
+import { EnrichmentQueue } from '../infra/queue/enrichment.queue';
 import { PrismaBatchItemInbox } from '../infra/repositories/prisma-batch-item.inbox';
 import { PrismaBatchRunStore } from '../infra/repositories/prisma-batch-run.store';
 
@@ -21,11 +24,15 @@ describe('BatchProcessingModule wiring', () => {
   it('binds each port to its adapter and builds the use cases', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [ConfigModule, PrismaModule, BatchProcessingModule],
-    }).compile();
+    })
+      .overrideProvider(EnrichmentQueue)
+      .useValue({})
+      .compile();
 
     expect(moduleRef.get(BatchItemInbox)).toBeInstanceOf(PrismaBatchItemInbox);
     expect(moduleRef.get(BatchPlatformClient)).toBeInstanceOf(BatchPlatformHttpClient);
     expect(moduleRef.get(BatchRunStore)).toBeInstanceOf(PrismaBatchRunStore);
+    expect(moduleRef.get(EnrichmentJobPublisher)).toBeInstanceOf(BullMqEnrichmentJobPublisher);
     expect(moduleRef.get(ReceiveBatchItemUseCase)).toBeInstanceOf(ReceiveBatchItemUseCase);
     expect(moduleRef.get(RequestBatchUseCase)).toBeInstanceOf(RequestBatchUseCase);
   });

@@ -3,9 +3,12 @@ import { RegistrationModule } from "../registration/registration.module";
 import { BatchItemInbox } from "./application/ports/batch-item.inbox";
 import { BatchPlatformClient } from "./application/ports/batch-platform.client";
 import { BatchRunStore } from "./application/ports/batch-run.store";
+import { EnrichmentJobPublisher } from "./application/ports/enrichment-job.publisher";
 import { ReceiveBatchItemUseCase } from "./application/receive-batch-item.use-case";
 import { RequestBatchUseCase } from "./application/request-batch.use-case";
 import { BatchPlatformHttpClient } from "./infra/http/batch-platform.http-client";
+import { BullMqEnrichmentJobPublisher } from "./infra/queue/bullmq-enrichment-job.publisher";
+import { EnrichmentQueue } from "./infra/queue/enrichment.queue";
 import { PrismaBatchItemInbox } from "./infra/repositories/prisma-batch-item.inbox";
 import { PrismaBatchRunStore } from "./infra/repositories/prisma-batch-run.store";
 import { BatchController } from "./presentation/controllers/batch.controller";
@@ -27,6 +30,11 @@ import { ProcessController } from "./presentation/controllers/process.controller
       provide: BatchRunStore,
       useClass: PrismaBatchRunStore,
     },
+    {
+      provide: EnrichmentJobPublisher,
+      useClass: BullMqEnrichmentJobPublisher,
+    },
+    EnrichmentQueue,
     ReceiveBatchItemUseCase,
     RequestBatchUseCase,
   ],
