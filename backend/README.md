@@ -32,6 +32,7 @@ curl -X POST http://localhost:4000/batches   # pede um lote; as mensagens chegam
 ```
 
 Documentação interativa (Swagger) em `http://localhost:4000/docs`.
+Painel da fila de enriquecimento (Bull Board) em `http://localhost:4000/queues`: só responde para acesso direto em `localhost`; pelo túnel (header `x-forwarded-for` ou host externo) devolve 404.
 
 ## Endpoints implementados
 

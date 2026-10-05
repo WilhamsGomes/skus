@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { configureQueueBoard, QUEUE_BOARD_PATH } from "./modules/batch-processing/infra/queue/queue-board";
 import { APP_CONFIG, type AppConfig } from "./shared/config/app-config";
 import { configureHttp } from "./shared/infra/http/http.config";
 import { configureSwagger, SWAGGER_JSON_PATH, SWAGGER_PATH } from "./shared/infra/http/swagger.config";
@@ -18,6 +19,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalInterceptors(new HttpLoggingInterceptor());
   app.enableShutdownHooks();
   configureSwagger(app);
+  configureQueueBoard(app);
 
   const { port } = app.get<AppConfig>(APP_CONFIG);
   await app.listen(port);
@@ -26,6 +28,7 @@ async function bootstrap(): Promise<void> {
   logger.log(`API rodando em ${highlight(baseUrl)}`);
   logger.log(`Swagger em ${highlight(`${baseUrl}/${SWAGGER_PATH}`)}`);
   logger.log(`Swagger JSON em ${highlight(`${baseUrl}/${SWAGGER_JSON_PATH}`)}`);
+  logger.log(`Painel da fila em ${highlight(`${baseUrl}/${QUEUE_BOARD_PATH}`)} (somente localhost)`);
 }
 
 bootstrap().catch((error: unknown) => {
