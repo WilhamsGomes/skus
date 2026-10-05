@@ -37,6 +37,26 @@ export class PrismaBatchRunStore implements BatchRunStore {
     return updated === 1;
   }
 
+  async findOpenRunIds(createdAfter: Date, createdBefore: Date): Promise<string[]> {
+    const rows = await this.prisma.batchRun.findMany({
+      where: { status: "OPEN", createdAt: { gt: createdAfter, lt: createdBefore } },
+      select: { runId: true },
+    });
+    return rows.map((row) => row.runId);
+  }
+
+  async findPendingCallbackRunIds(updatedBefore: Date): Promise<string[]> {
+    const rows = await this.prisma.batchRun.findMany({
+      where: {
+        status: "COMPLETED",
+        callbackSentAt: null,
+        updatedAt: { lt: updatedBefore },
+      },
+      select: { runId: true },
+    });
+    return rows.map((row) => row.runId);
+  }
+
   async markCallbackSent(runId: string, report: unknown): Promise<void> {
     await this.prisma.batchRun.update({
       where: { runId },

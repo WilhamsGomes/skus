@@ -5,6 +5,8 @@ import type {
   BatchItemRef,
   BatchItemStore,
   CallbackItem,
+  StaleItem,
+  StaleItemQuery,
 } from "../../application/ports/batch-item.store";
 
 @Injectable()
@@ -47,6 +49,23 @@ export class PrismaBatchItemStore implements BatchItemStore {
         ? { seq, sku, price, stock }
         : { seq, sku, price: null, stock: null },
     );
+  }
+
+  findStale({
+    updatedBefore,
+    maxAttempts,
+    limit,
+  }: StaleItemQuery): Promise<StaleItem[]> {
+    return this.prisma.batchItem.findMany({
+      where: {
+        status: "RECEIVED",
+        updatedAt: { lt: updatedBefore },
+        attempts: { lt: maxAttempts },
+      },
+      orderBy: { updatedAt: "asc" },
+      take: limit,
+      select: { runId: true, seq: true, sku: true },
+    });
   }
 
   async recordFailedAttempt(item: BatchItemRef, reason: string): Promise<void> {

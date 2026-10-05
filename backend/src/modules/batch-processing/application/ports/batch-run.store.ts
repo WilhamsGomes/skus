@@ -6,4 +6,6 @@ export abstract class BatchRunStore {
   abstract find(runId: string): Promise<BatchRun | null>;
   abstract claimCompletion(runId: string): Promise<boolean>;
   abstract markCallbackSent(runId: string, report: unknown): Promise<void>;
+  abstract findOpenRunIds(createdAfter: Date, createdBefore: Date): Promise<string[]>;
+  abstract findPendingCallbackRunIds(updatedBefore: Date): Promise<string[]>;
 }

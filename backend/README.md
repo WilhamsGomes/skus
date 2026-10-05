@@ -125,7 +125,7 @@ lock com as outras. Isso também evita carregar 20.000 itens para decidir algo.
   **Prisma 7** com driver adapter `pg`.
 - **Validação:** `class-validator` nos DTOs HTTP e no ambiente (uma única biblioteca). O domínio revalida as próprias invariantes.
 
-## Próximos passos (desenhados, não implementados)
+## Casos de uso e portas
 
 Casos de uso e portas previstos:
 
@@ -134,7 +134,7 @@ Casos de uso e portas previstos:
 | `RegisterWebhook` ✅ (`POST /registration`) | `PlatformRegistrationGateway`, `RegistrationRepository` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
 | `RequestBatch` ✅ (`POST /batches`) | `BatchPlatformClient` ✅, `BatchRunStore.open` ✅ (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. Guarda o `cid` do burst para o callback. |
 | `ReceiveBatchItem` ✅ + publicação ✅ | `EnrichmentJobPublisher` ✅ | Após gravar, publica job com `jobId = run_id-seq` (o BullMQ não aceita `:`), também nas duplicatas. Publish limitado a 200 ms: `queue.add` espera a conexão e, com o Redis fora, ficaria pendurado. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
-| `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |
+| `ReconcileStaleWork` ✅ (`StaleWorkReconciler`, a cada 30 s) | `BatchItemStore.findStale`, `BatchRunStore.findOpenRunIds` / `findPendingCallbackRunIds`, `republish` dos dois publishers | Banco e fila não são transacionais; a varredura fecha essa janela. Pega o que está parado há mais de 60 s: itens `RECEIVED` (até 30 tentativas acumuladas), lotes `OPEN` das últimas 24 h que já podem fechar, e lotes `COMPLETED` sem `callback_sent_at`. `republish` olha o estado do job: inexistente → `add`; `failed` → `retry()` (um `add` com o mesmo `jobId` seria ignorado); `completed` → remove e adiciona; demais → nada. Testado com lote real: jobs apagados da fila, itens recuperados e callback com score 100. |
 | `EnrichBatchItem` ✅ (worker) | `BatchRunStore.find`, `RegistrationRepository.findByCid`, `EnrichmentClient`, `BatchItemStore` | Credenciais do `cid` da execução. Update condicional (`WHERE status = 'RECEIVED'`), o que torna jobs repetidos inofensivos. Execução ainda não gravada (`/process` antes do `/burst` responder) vira retry. |
 | `CloseBatchRun` ✅ + `SendBatchCallback` ✅ | `BatchRunStore.claimCompletion`, `CallbackJobPublisher`, `BatchItemStore.listForCallback`, `BatchPlatformClient.sendResult` | Após cada item final, um único `UPDATE … WHERE status = 'OPEN' AND total <= (finalizados)` decide quem fecha o lote (só um vence). O vencedor publica um job na fila `callback` (`jobId = run_id`); o `CallbackWorker` envia `POST /callback` ordenado por `seq` e guarda a resposta em `batch_runs.callback_report`. |
 

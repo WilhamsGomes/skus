@@ -10,6 +10,7 @@ import { CallbackJobPublisher } from "./application/ports/callback-job.publisher
 import { EnrichmentJobPublisher } from "./application/ports/enrichment-job.publisher";
 import { EnrichmentClient } from "./application/ports/enrichment.client";
 import { ReceiveBatchItemUseCase } from "./application/receive-batch-item.use-case";
+import { ReconcileStaleWorkUseCase } from "./application/reconcile-stale-work.use-case";
 import { RequestBatchUseCase } from "./application/request-batch.use-case";
 import { SendBatchCallbackUseCase } from "./application/send-batch-callback.use-case";
 import { BatchPlatformHttpClient } from "./infra/http/batch-platform.http-client";
@@ -21,6 +22,7 @@ import { CallbackWorker } from "./infra/queue/callback.worker";
 import { EnrichmentQueue } from "./infra/queue/enrichment.queue";
 import { EnrichmentWorker } from "./infra/queue/enrichment.worker";
 import { PrismaBatchItemInbox } from "./infra/repositories/prisma-batch-item.inbox";
+import { StaleWorkReconciler } from "./infra/scheduling/stale-work.reconciler";
 import { PrismaBatchItemStore } from "./infra/repositories/prisma-batch-item.store";
 import { PrismaBatchRunStore } from "./infra/repositories/prisma-batch-run.store";
 import { BatchController } from "./presentation/controllers/batch.controller";
@@ -67,6 +69,8 @@ import { ProcessController } from "./presentation/controllers/process.controller
     EnrichBatchItemUseCase,
     CloseBatchRunUseCase,
     SendBatchCallbackUseCase,
+    ReconcileStaleWorkUseCase,
+    StaleWorkReconciler,
   ],
 })
 export class BatchProcessingModule {}

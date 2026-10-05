@@ -28,6 +28,8 @@ describe('RequestBatchUseCase', () => {
       find: jest.fn(),
       claimCompletion: jest.fn(),
       markCallbackSent: jest.fn(),
+      findOpenRunIds: jest.fn(),
+      findPendingCallbackRunIds: jest.fn(),
     };
     useCase = new RequestBatchUseCase(registrations, platform, runs);
   });

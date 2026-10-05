@@ -11,7 +11,7 @@ describe('ReceiveBatchItemUseCase', () => {
 
   beforeEach(() => {
     inbox = { recordIfNew: jest.fn().mockResolvedValue(true) };
-    publisher = { publish: jest.fn().mockResolvedValue(undefined) };
+    publisher = { publish: jest.fn().mockResolvedValue(undefined), republish: jest.fn() };
     useCase = new ReceiveBatchItemUseCase(inbox, publisher);
   });
 

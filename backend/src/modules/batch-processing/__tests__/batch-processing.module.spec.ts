@@ -5,6 +5,8 @@ import { CloseBatchRunUseCase } from '../application/close-batch-run.use-case';
 import { EnrichBatchItemUseCase } from '../application/enrich-batch-item.use-case';
 import { CallbackJobPublisher } from '../application/ports/callback-job.publisher';
 import { SendBatchCallbackUseCase } from '../application/send-batch-callback.use-case';
+import { ReconcileStaleWorkUseCase } from '../application/reconcile-stale-work.use-case';
+import { StaleWorkReconciler } from '../infra/scheduling/stale-work.reconciler';
 import { BullMqCallbackJobPublisher } from '../infra/queue/bullmq-callback-job.publisher';
 import { CallbackQueue } from '../infra/queue/callback.queue';
 import { CallbackWorker } from '../infra/queue/callback.worker';
@@ -57,5 +59,7 @@ describe('BatchProcessingModule wiring', () => {
     expect(moduleRef.get(CallbackWorker)).toBeInstanceOf(CallbackWorker);
     expect(moduleRef.get(CloseBatchRunUseCase)).toBeInstanceOf(CloseBatchRunUseCase);
     expect(moduleRef.get(SendBatchCallbackUseCase)).toBeInstanceOf(SendBatchCallbackUseCase);
+    expect(moduleRef.get(ReconcileStaleWorkUseCase)).toBeInstanceOf(ReconcileStaleWorkUseCase);
+    expect(moduleRef.get(StaleWorkReconciler)).toBeInstanceOf(StaleWorkReconciler);
   });
 });

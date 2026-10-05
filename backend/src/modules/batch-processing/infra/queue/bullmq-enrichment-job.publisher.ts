@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import type { ReceivedItem } from "../../domain/received-item";
-import type { EnrichmentJobPublisher } from "../../application/ports/enrichment-job.publisher";
+import type {
+  EnrichmentJobPublisher,
+  RepublishOutcome,
+} from "../../application/ports/enrichment-job.publisher";
+import { ensureJob } from "./ensure-job";
 import { EnrichmentQueue } from "./enrichment.queue";
 
 export const PUBLISH_TIMEOUT_MS = 200;
@@ -17,6 +21,11 @@ export class BullMqEnrichmentJobPublisher implements EnrichmentJobPublisher {
       PUBLISH_TIMEOUT_MS,
       `publish ${jobId}`,
     );
+  }
+
+  republish(item: ReceivedItem): Promise<RepublishOutcome> {
+    const { runId, seq, sku } = item;
+    return ensureJob(this.queue, "enrich", { runId, seq, sku }, toJobId(item));
   }
 }
 

@@ -35,6 +35,8 @@ describe('SendBatchCallbackUseCase', () => {
       find: jest.fn().mockResolvedValue(run),
       claimCompletion: jest.fn(),
       markCallbackSent: jest.fn().mockResolvedValue(undefined),
+      findOpenRunIds: jest.fn(),
+      findPendingCallbackRunIds: jest.fn(),
     };
     registrations = { save: jest.fn(), findCurrent: jest.fn(), findByCid: jest.fn().mockResolvedValue(registration) };
     items = {
@@ -42,6 +44,7 @@ describe('SendBatchCallbackUseCase', () => {
       markFailed: jest.fn(),
       recordFailedAttempt: jest.fn(),
       listForCallback: jest.fn().mockResolvedValue(result),
+      findStale: jest.fn(),
     };
     platform = { requestBurst: jest.fn(), sendResult: jest.fn().mockResolvedValue(report) };
     useCase = new SendBatchCallbackUseCase(runs, registrations, items, platform);

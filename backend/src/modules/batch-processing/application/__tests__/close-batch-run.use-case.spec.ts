@@ -13,8 +13,10 @@ describe('CloseBatchRunUseCase', () => {
       find: jest.fn(),
       claimCompletion: jest.fn().mockResolvedValue(true),
       markCallbackSent: jest.fn(),
+      findOpenRunIds: jest.fn(),
+      findPendingCallbackRunIds: jest.fn(),
     };
-    callbacks = { publish: jest.fn().mockResolvedValue(undefined) };
+    callbacks = { publish: jest.fn().mockResolvedValue(undefined), republish: jest.fn() };
     useCase = new CloseBatchRunUseCase(runs, callbacks);
   });
 
