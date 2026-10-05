@@ -1,0 +1,102 @@
+{
+    "total": 20,
+    "report": {
+        "ok": true,
+        "ack": {
+            "p50": 420,
+            "p95": 494,
+            "pass": true,
+            "worst": {
+                "ms": 496,
+                "seq": 10
+            },
+            "failed": [
+            ],
+            "measured": 20,
+            "target_ms": 600,
+            "warmup_ms": 472,
+            "over_target": [
+            ]
+        },
+        "retry": {
+            "pass": true,
+            "recovered": 1,
+            "forced_500": 1,
+            "skus_with_500": 1
+        },
+        "score": 100,
+        "result": {
+            "pass": true,
+            "matched": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19
+            ],
+            "missing": [
+            ],
+            "unknown": [
+            ],
+            "expected": 20,
+            "mismatched": [
+            ]
+        },
+        "attempt": 1,
+        "breakdown": {
+            "ack": {
+                "earned": 30,
+                "weight": 30
+            },
+            "retry": {
+                "earned": 15,
+                "weight": 15
+            },
+            "result": {
+                "earned": 30,
+                "weight": 30
+            },
+            "concurrency": {
+                "earned": 10,
+                "weight": 10
+            },
+            "idempotency": {
+                "earned": 15,
+                "weight": 15
+            }
+        },
+        "concurrency": {
+            "pass": true,
+            "limit": 3,
+            "got_429": 0,
+            "skus_stuck_after_429": [
+            ]
+        },
+        "duration_ms": 2274,
+        "idempotency": {
+            "pass": true,
+            "enrich_calls": 1,
+            "duplicate_seq": 3,
+            "duplicate_sku": "og92eebbyw48lvrwga1042sg",
+            "expected_calls": 1
+        }
+    },
+    "run_id": "commu6tbvctfzki8is577s90",
+    "started_at": "2026-10-05T19:42:46.708+00:00",
+    "callback_sent_at": "2026-10-05T19:42:53.912+00:00"
+}
