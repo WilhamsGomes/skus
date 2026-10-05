@@ -8,33 +8,29 @@ import {
 import { describeConnectionError } from "../../../../shared/utils/describe-connection-error";
 import { createProducerConnection } from "./queue-connections";
 
-export const ENRICHMENT_QUEUE = "enrichment";
+export const CALLBACK_QUEUE = "callback";
 
-export interface EnrichmentJobData {
+export interface CallbackJobData {
   runId: string;
-  seq: number;
-  sku: string;
 }
 
-export const ENRICH_MAX_IN_FLIGHT = 3;
-export const ENRICH_ATTEMPTS = 10;
 const ONE_HOUR_S = 60 * 60;
 
 @Injectable()
-export class EnrichmentQueue
-  extends Queue<EnrichmentJobData>
+export class CallbackQueue
+  extends Queue<CallbackJobData>
   implements OnModuleDestroy
 {
-  private readonly logger = new Logger(EnrichmentQueue.name);
+  private readonly logger = new Logger(CallbackQueue.name);
   private readonly connection: Redis;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     const connection = createProducerConnection(config.redisUrl);
-    super(ENRICHMENT_QUEUE, {
+    super(CALLBACK_QUEUE, {
       connection,
       defaultJobOptions: {
-        attempts: ENRICH_ATTEMPTS,
-        backoff: { type: "exponential", delay: 500, jitter: 0.5 },
+        attempts: 6,
+        backoff: { type: "exponential", delay: 1_000, jitter: 0.5 },
         removeOnComplete: { age: ONE_HOUR_S },
         removeOnFail: { age: 24 * ONE_HOUR_S },
       },
@@ -42,7 +38,7 @@ export class EnrichmentQueue
     this.connection = connection;
     this.on("error", (error) =>
       this.logger.warn(
-        `Fila de enriquecimento sem Redis: ${describeConnectionError(error)}`,
+        `Fila de callback sem Redis: ${describeConnectionError(error)}`,
       ),
     );
   }

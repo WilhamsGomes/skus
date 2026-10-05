@@ -1,7 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { ConfigModule } from '../../../shared/config/config.module';
 import { PrismaModule } from '../../../shared/infra/prisma/prisma.module';
+import { CloseBatchRunUseCase } from '../application/close-batch-run.use-case';
 import { EnrichBatchItemUseCase } from '../application/enrich-batch-item.use-case';
+import { CallbackJobPublisher } from '../application/ports/callback-job.publisher';
+import { SendBatchCallbackUseCase } from '../application/send-batch-callback.use-case';
+import { BullMqCallbackJobPublisher } from '../infra/queue/bullmq-callback-job.publisher';
+import { CallbackQueue } from '../infra/queue/callback.queue';
+import { CallbackWorker } from '../infra/queue/callback.worker';
 import { BatchItemInbox } from '../application/ports/batch-item.inbox';
 import { BatchItemStore } from '../application/ports/batch-item.store';
 import { BatchPlatformClient } from '../application/ports/batch-platform.client';
@@ -33,6 +39,8 @@ describe('BatchProcessingModule wiring', () => {
     })
       .overrideProvider(EnrichmentQueue)
       .useValue({})
+      .overrideProvider(CallbackQueue)
+      .useValue({})
       .compile();
 
     expect(moduleRef.get(BatchItemInbox)).toBeInstanceOf(PrismaBatchItemInbox);
@@ -45,5 +53,9 @@ describe('BatchProcessingModule wiring', () => {
     expect(moduleRef.get(EnrichmentClient)).toBeInstanceOf(EnrichmentHttpClient);
     expect(moduleRef.get(EnrichBatchItemUseCase)).toBeInstanceOf(EnrichBatchItemUseCase);
     expect(moduleRef.get(EnrichmentWorker)).toBeInstanceOf(EnrichmentWorker);
+    expect(moduleRef.get(CallbackJobPublisher)).toBeInstanceOf(BullMqCallbackJobPublisher);
+    expect(moduleRef.get(CallbackWorker)).toBeInstanceOf(CallbackWorker);
+    expect(moduleRef.get(CloseBatchRunUseCase)).toBeInstanceOf(CloseBatchRunUseCase);
+    expect(moduleRef.get(SendBatchCallbackUseCase)).toBeInstanceOf(SendBatchCallbackUseCase);
   });
 });

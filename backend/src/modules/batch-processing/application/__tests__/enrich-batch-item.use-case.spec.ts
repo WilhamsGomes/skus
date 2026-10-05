@@ -34,13 +34,19 @@ describe('EnrichBatchItemUseCase', () => {
   let useCase: EnrichBatchItemUseCase;
 
   beforeEach(() => {
-    runs = { open: jest.fn(), find: jest.fn().mockResolvedValue(run) };
+    runs = {
+      open: jest.fn(),
+      find: jest.fn().mockResolvedValue(run),
+      claimCompletion: jest.fn(),
+      markCallbackSent: jest.fn(),
+    };
     registrations = { save: jest.fn(), findCurrent: jest.fn(), findByCid: jest.fn().mockResolvedValue(registration) };
     client = { enrich: jest.fn().mockResolvedValue(result) };
     items = {
       markEnriched: jest.fn().mockResolvedValue(true),
       markFailed: jest.fn().mockResolvedValue(true),
       recordFailedAttempt: jest.fn().mockResolvedValue(undefined),
+      listForCallback: jest.fn(),
     };
     useCase = new EnrichBatchItemUseCase(runs, registrations, client, items);
   });

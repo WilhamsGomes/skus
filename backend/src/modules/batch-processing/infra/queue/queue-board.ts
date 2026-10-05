@@ -3,6 +3,7 @@ import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import type { NextFunction, Request, Response } from "express";
+import { CallbackQueue } from "./callback.queue";
 import { EnrichmentQueue } from "./enrichment.queue";
 
 export const QUEUE_BOARD_PATH = "queues";
@@ -14,7 +15,10 @@ export function configureQueueBoard(app: INestApplication): void {
   serverAdapter.setBasePath(`/${QUEUE_BOARD_PATH}`);
 
   createBullBoard({
-    queues: [new BullMQAdapter(app.get(EnrichmentQueue))],
+    queues: [
+      new BullMQAdapter(app.get(EnrichmentQueue)),
+      new BullMQAdapter(app.get(CallbackQueue)),
+    ],
     serverAdapter,
   });
 

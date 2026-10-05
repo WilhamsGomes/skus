@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "../../../../generated/prisma/client";
 import { PrismaService } from "../../../../shared/infra/prisma/prisma.service";
 import type { BatchRun } from "../../domain/batch-run";
 import type { BatchRunStore } from "../../application/ports/batch-run.store";
@@ -21,5 +22,31 @@ export class PrismaBatchRunStore implements BatchRunStore {
     if (!row) return null;
     const { cid, total, status, startedAt } = row;
     return { runId, cid, total, status, startedAt };
+  }
+
+  async claimCompletion(runId: string): Promise<boolean> {
+    const updated = await this.prisma.$executeRaw`
+      UPDATE batch_runs
+      SET status = 'COMPLETED', updated_at = now()
+      WHERE run_id = ${runId}
+        AND status = 'OPEN'
+        AND total <= (
+          SELECT count(*) FROM batch_items
+          WHERE run_id = ${runId} AND status IN ('ENRICHED', 'FAILED')
+        )`;
+    return updated === 1;
+  }
+
+  async markCallbackSent(runId: string, report: unknown): Promise<void> {
+    await this.prisma.batchRun.update({
+      where: { runId },
+      data: {
+        callbackSentAt: new Date(),
+        callbackReport:
+          report === null || report === undefined
+            ? Prisma.JsonNull
+            : (report as Prisma.InputJsonValue),
+      },
+    });
   }
 }

@@ -4,6 +4,7 @@ import type { EnrichmentResult } from "../../domain/enrichment-result";
 import type {
   BatchItemRef,
   BatchItemStore,
+  CallbackItem,
 } from "../../application/ports/batch-item.store";
 
 @Injectable()
@@ -33,6 +34,19 @@ export class PrismaBatchItemStore implements BatchItemStore {
       data: { status: "FAILED", lastError: reason, attempts: { increment: 1 } },
     });
     return count === 1;
+  }
+
+  async listForCallback(runId: string): Promise<CallbackItem[]> {
+    const rows = await this.prisma.batchItem.findMany({
+      where: { runId },
+      orderBy: { seq: "asc" },
+      select: { seq: true, sku: true, status: true, price: true, stock: true },
+    });
+    return rows.map(({ seq, sku, status, price, stock }) =>
+      status === "ENRICHED"
+        ? { seq, sku, price, stock }
+        : { seq, sku, price: null, stock: null },
+    );
   }
 
   async recordFailedAttempt(item: BatchItemRef, reason: string): Promise<void> {

@@ -15,20 +15,22 @@ datasource db {
 // Uma execução pedida via POST /burst. `total` vem da plataforma e decide quando o lote está completo.
 // `cid` é o do registro usado no burst: o callback precisa da mesma credencial, mesmo que haja um registro mais novo.
 model BatchRun {
-  runId     String         @id @map("run_id")
-  cid       String
-  total     Int
-  status    BatchRunStatus @default(OPEN)
-  startedAt DateTime       @map("started_at") @db.Timestamptz(3)
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  runId          String         @id @map("run_id")
+  cid            String
+  total          Int
+  status         BatchRunStatus @default(OPEN)
+  startedAt      DateTime       @map("started_at") @db.Timestamptz(3)
+  callbackSentAt DateTime?      @map("callback_sent_at") @db.Timestamptz(3)
+  callbackReport Json?          @map("callback_report")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("batch_runs")
 }
 
 enum BatchRunStatus {
   OPEN // recebendo e enriquecendo itens
-  COMPLETED // callback enviado
+  COMPLETED // todos os itens finalizados; callback enviado quando callback_sent_at preenchido
 
   @@map("batch_run_status")
 }

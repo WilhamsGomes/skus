@@ -1,4 +1,5 @@
 import type { PlatformCredentials } from '../../../registration/domain/registration';
+import type { CallbackItem } from './batch-item.store';
 
 /** Resposta do POST /burst: a plataforma começa a enviar as mensagens para /process logo em seguida. */
 export interface BurstTicket {
@@ -12,4 +13,9 @@ export interface BurstTicket {
 export abstract class BatchPlatformClient {
   /** @throws PlatformUnavailableError em erro de rede, timeout, status não 2xx ou resposta fora do contrato. */
   abstract requestBurst(credentials: PlatformCredentials): Promise<BurstTicket>;
+  abstract sendResult(
+    credentials: PlatformCredentials,
+    runId: string,
+    result: CallbackItem[],
+  ): Promise<unknown>;
 }

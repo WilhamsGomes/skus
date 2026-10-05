@@ -6,12 +6,13 @@ import {
   OnModuleDestroy,
 } from "@nestjs/common";
 import { type Job, UnrecoverableError, Worker } from "bullmq";
-import Redis from "ioredis";
+import type Redis from "ioredis";
 import {
   APP_CONFIG,
   type AppConfig,
 } from "../../../../shared/config/app-config";
 import { describeConnectionError } from "../../../../shared/utils/describe-connection-error";
+import { CloseBatchRunUseCase } from "../../application/close-batch-run.use-case";
 import { EnrichBatchItemUseCase } from "../../application/enrich-batch-item.use-case";
 import {
   EnrichmentRateLimitedError,
@@ -24,6 +25,7 @@ import {
   EnrichmentQueue,
   type EnrichmentJobData,
 } from "./enrichment.queue";
+import { createWorkerConnection } from "./queue-connections";
 
 type EnrichmentJob = Pick<Job<EnrichmentJobData>, "id" | "data" | "attemptsMade">;
 
@@ -37,14 +39,13 @@ export class EnrichmentWorker implements OnApplicationBootstrap, OnModuleDestroy
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly queue: EnrichmentQueue,
     private readonly enrichBatchItem: EnrichBatchItemUseCase,
+    private readonly closeBatchRun: CloseBatchRunUseCase,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     await this.queue.setGlobalConcurrency(ENRICH_MAX_IN_FLIGHT);
 
-    this.connection = new Redis(this.config.redisUrl, {
-      maxRetriesPerRequest: null,
-    });
+    this.connection = createWorkerConnection(this.config.redisUrl);
     this.worker = new Worker(ENRICHMENT_QUEUE, (job) => this.handle(job), {
       connection: this.connection,
       concurrency: ENRICH_MAX_IN_FLIGHT,
@@ -67,6 +68,7 @@ export class EnrichmentWorker implements OnApplicationBootstrap, OnModuleDestroy
     try {
       const outcome = await this.enrichBatchItem.execute(job.data);
       this.logger.log(`Job ${job.id}: ${outcome}`);
+      await this.closeBatchRun.execute(job.data.runId);
     } catch (error) {
       if (error instanceof EnrichmentRateLimitedError) {
         this.logger.warn(`429 no /enrich: fila pausada por ${error.retryAfterMs}ms`);

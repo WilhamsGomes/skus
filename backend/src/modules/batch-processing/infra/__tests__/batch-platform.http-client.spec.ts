@@ -1,5 +1,6 @@
 import type { AppConfig } from '../../../../shared/config/app-config';
 import { PlatformUnavailableError } from '../../../registration/application/registration.errors';
+import { CallbackRejectedError } from '../../application/callback.errors';
 import { BatchPlatformHttpClient } from '../http/batch-platform.http-client';
 
 describe('BatchPlatformHttpClient', () => {
@@ -43,5 +44,44 @@ describe('BatchPlatformHttpClient', () => {
     fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 
     await expect(client.requestBurst(credentials)).rejects.toThrow(PlatformUnavailableError);
+  });
+
+  describe('sendResult', () => {
+    const result = [
+      { seq: 0, sku: 'sku-0', price: 149.9, stock: 42 },
+      { seq: 1, sku: 'sku-1', price: null, stock: null },
+    ];
+
+    it('POSTs the contract payload to /callback with x-token and returns the report', async () => {
+      respond(200, { report: { divergences: 0 } });
+
+      await expect(client.sendResult(credentials, 'clx-run', result)).resolves.toEqual({ report: { divergences: 0 } });
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://platform.test/callback');
+      expect(init).toMatchObject({
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-token': 'tok' },
+      });
+      expect(JSON.parse(init?.body as string)).toEqual({ cid: 'clx-cid', run_id: 'clx-run', result });
+    });
+
+    it('returns a plain-text report as is', async () => {
+      fetchMock.mockResolvedValue(new Response('relatório gerado', { status: 200 }));
+
+      await expect(client.sendResult(credentials, 'clx-run', result)).resolves.toBe('relatório gerado');
+    });
+
+    it.each([429, 500, 503])('treats %i as transient', async (status) => {
+      respond(status, {});
+
+      await expect(client.sendResult(credentials, 'clx-run', result)).rejects.toThrow(PlatformUnavailableError);
+    });
+
+    it.each([400, 401, 422])('treats %i as a permanent rejection', async (status) => {
+      respond(status, { error: 'invalid' });
+
+      await expect(client.sendResult(credentials, 'clx-run', result)).rejects.toThrow(CallbackRejectedError);
+    });
   });
 });

@@ -136,7 +136,7 @@ Casos de uso e portas previstos:
 | `ReceiveBatchItem` ✅ + publicação ✅ | `EnrichmentJobPublisher` ✅ | Após gravar, publica job com `jobId = run_id-seq` (o BullMQ não aceita `:`), também nas duplicatas. Publish limitado a 200 ms: `queue.add` espera a conexão e, com o Redis fora, ficaria pendurado. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
 | `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |
 | `EnrichBatchItem` ✅ (worker) | `BatchRunStore.find`, `RegistrationRepository.findByCid`, `EnrichmentClient`, `BatchItemStore` | Credenciais do `cid` da execução. Update condicional (`WHERE status = 'RECEIVED'`), o que torna jobs repetidos inofensivos. Execução ainda não gravada (`/process` antes do `/burst` responder) vira retry. |
-| `ConsolidateBatch` | `BatchRunStore.claimForCallback`, `BatchResultReader`, `CallbackClient` | Claim atômico: só se `concluídos == total` e status permitir. Assim nenhum callback sai de lote incompleto. |
+| `CloseBatchRun` ✅ + `SendBatchCallback` ✅ | `BatchRunStore.claimCompletion`, `CallbackJobPublisher`, `BatchItemStore.listForCallback`, `BatchPlatformClient.sendResult` | Após cada item final, um único `UPDATE … WHERE status = 'OPEN' AND total <= (finalizados)` decide quem fecha o lote (só um vence). O vencedor publica um job na fila `callback` (`jobId = run_id`); o `CallbackWorker` envia `POST /callback` ordenado por `seq` e guarda a resposta em `batch_runs.callback_report`. |
 
 Tolerância a falhas e concorrência no enriquecimento:
 
@@ -145,10 +145,11 @@ Tolerância a falhas e concorrência no enriquecimento:
 - **429 + `retry-after`:** pausa a fila pelo tempo indicado (rate limit do worker), em vez de dormir segurando o slot.
 - **500, timeout (5 s), rede ou resposta fora do contrato:** retry com backoff exponencial (500 ms, ×2, jitter 50%), até 10 tentativas. **401** ou registro do `cid` ausente: `UnrecoverableError`, sem retry; o item fica `RECEIVED` com `last_error`. **404:** item `FAILED` (`sku_not_found`), sem retry.
 - `attempts` em `batch_items` conta chamadas ao `/enrich` que tiveram resposta tratada (429 não conta: é controle de vazão, não falha).
-- **Callback:** at-least-once. A plataforma aceita reenvios, então falhas são repetidas. Não prometemos exactly-once.
+- **Callback:** at-least-once, em fila própria (6 tentativas, backoff exponencial a partir de 1 s). 429/5xx/rede: retry; outros 4xx: falha definitiva. A plataforma aceita reenvios. Não prometemos exactly-once.
+- **Itens `FAILED` (404)** vão no callback com `price` e `stock` nulos.
 - Headers (`x-cid`, `x-token`) e payloads da plataforma ficam só nos adapters HTTP.
 
-Questões em aberto (os PDFs não definem): como representar no callback um item com 404, e o formato do relatório.
+Questão em aberto (os PDFs não definem): como representar no callback um item com 404. Adotado: `price`/`stock` nulos.
 
 ### Se o lote tivesse 20.000 SKUs
 
