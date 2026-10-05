@@ -1,0 +1,90 @@
+# SKU Enrichment Integration
+
+Serviço que se registra na plataforma, recebe lotes de SKUs em `POST /process`, confirma cada mensagem em milissegundos, enriquece os itens de forma assíncrona (`GET /enrich/:sku`) e devolve o lote consolidado em `POST /callback`. Um painel web acompanha lotes, itens, filas, Redis e entregas.
+
+| Pasta | Conteúdo |
+|---|---|
+| [`backend/`](backend/README.md) | NestJS 11, PostgreSQL (Prisma 7), Redis + BullMQ |
+| [`frontend/`](frontend/README.md) | React + Vite: painel de operação com login |
+| [`docs/relatorio-melhor-execucao.json`](docs/relatorio-melhor-execucao.json) | Relatório da melhor execução (score 100) |
+
+## Como executar
+
+Pré-requisitos: Node.js ≥ 20.19, Docker e ngrok.
+
+```bash
+# 1. Backend: Postgres + Redis, migrations e API em http://localhost:4000
+cd backend
+cp .env.example .env
+npm install
+npm run infra:up
+npm run prisma:deploy
+npm run start:dev
+
+# 2. Túnel público (outro terminal)
+ngrok http 4000
+
+# 3. Painel em http://localhost:5173 (outro terminal) · login admin / admin
+cd frontend
+npm install
+npm run dev
+```
+
+No painel: **Registro** → informe a URL do ngrok → **Solicitar lote**. A tela do lote mostra os itens chegando e sendo enriquecidos e, ao final, o relatório devolvido pela plataforma. O mesmo fluxo por `curl` está no [README do backend](backend/README.md).
+
+## Fluxo
+
+```
+POST /registration ──► plataforma POST /register ──► chama nosso /check ──► cid + token salvos
+POST /batches ───────► plataforma POST /burst/:cid ─► run_id + total salvos (batch_runs)
+plataforma ──► POST /process (×total) ──► INSERT idempotente + job na fila ──► 200 em ms
+worker (até 3 em voo) ──► GET /enrich/:sku ──► item ENRICHED / FAILED
+último item finalizado ──► fecha o lote (UPDATE atômico) ──► fila callback ──► POST /callback
+varredura a cada 30 s ──► republica itens parados, fecha lotes, reenvia callbacks pendentes
+```
+
+## Melhor execução
+
+[`docs/relatorio-melhor-execucao.json`](docs/relatorio-melhor-execucao.json) · lote `commu6tbvctfzki8is577s90`
+
+| Critério | Resultado |
+|---|---|
+| Score | **100** (ACK 30/30 · retry 15/15 · resultado 30/30 · concorrência 10/10 · idempotência 15/15) |
+| ACK | p50 420 ms · p95 494 ms · pior 496 ms (meta 600 ms, medido de ponta a ponta com o túnel) |
+| Resultado | 20/20 itens corretos, nenhum faltando ou divergente |
+| Falhas | 500 forçado recuperado com retry · 0 respostas 429 · duplicata processada uma única vez |
+
+Todas as execuções registradas tiveram score 100, inclusive uma em que os jobs foram apagados da fila de propósito e a varredura recuperou o lote.
+
+## Decisões de arquitetura
+
+**Receber e processar são coisas separadas.** O `/process` só grava o item no Postgres e publica um job no BullMQ; quem chama o `/enrich` é um worker. O ACK fica em milissegundos, independente da latência do `/enrich` (400–800 ms) e dos erros dele. Com o enriquecimento dentro da requisição, a latência sozinha estouraria os 600 ms e 20 mensagens simultâneas contra um limite de 3 gerariam 429.
+
+**Idempotência pela identidade do contrato.** `run_id + seq` é a chave primária de `batch_items`, e o insert é `ON CONFLICT DO NOTHING`: entregas duplicadas, inclusive simultâneas, nunca criam dois itens, e quem resolve a corrida é o banco. O job usa a mesma identidade como `jobId`, então a fila também descarta a duplicata. Duplicatas recebem 200; se o insert falhar, o 500 é intencional e a plataforma reentrega.
+
+**Concorrência controlada na fila, não no código.** `setGlobalConcurrency(3)` fica no Redis e vale para todos os workers. Um 429 pausa a fila pelo `retry-after` sem gastar tentativa; 500 e timeouts têm retry com backoff exponencial e jitter (até 10 vezes); 404 marca o item como falho (vai no callback com `price`/`stock` nulos); 401 falha sem retry.
+
+**O lote fecha uma única vez.** Após cada item, um `UPDATE … WHERE status = 'OPEN' AND total <= finalizados` decide quem fecha o lote: com vários jobs terminando juntos, só um vence. O vencedor publica o callback numa fila própria (6 tentativas), para que uma falha no envio não se perca com o job do item. O `total` vem do `/burst`, nunca 20 fixo.
+
+**Banco e fila não são transacionais, e uma varredura cobre a diferença.** O item é gravado antes do job ser publicado, então uma queda entre os dois deixaria o item sem job. A cada 30 s, a varredura republica itens parados (com `retry()` quando o job já esgotou as tentativas), fecha lotes que ficaram completos e reenvia callbacks não confirmados.
+
+**Organização.** Módulos por capacidade (`registration`, `batch-processing`, `auth`, `dashboard`), com camadas `domain → application → infra/presentation` e portas como classes abstratas injetadas pelo Nest. O painel tem um módulo só de leitura, sem casos de uso, porque não há regra de negócio nas consultas. 148 testes cobrem casos de uso, adapters HTTP, workers, controllers e a montagem dos módulos.
+
+## Trade-offs aceitos
+
+- **Redis como peça extra.** Em troca de filas duráveis (AOF ligado), retry com backoff, limite global e pausa por 429 prontos. Uma fila no Postgres (`SKIP LOCKED`) evitaria a peça, mas exigiria escrever tudo isso à mão.
+- **Worker no mesmo processo da API.** Mais simples de rodar e não afeta o ACK, porque o worker só espera rede. Separar é só criar outro ponto de entrada, já que o limite é global.
+- **At-least-once, não exactly-once.** Um job pode rodar duas vezes (por exemplo, depois de um crash); o update condicional (`WHERE status = 'RECEIVED'`) torna isso inofensivo, mas pode gerar uma chamada extra ao `/enrich`. O callback também pode ser reenviado; a plataforma aceita reenvios.
+- **Deduplicação da fila com prazo.** Jobs concluídos ficam 1 h no Redis; uma reentrega depois disso cria outro job, que encontra o item já finalizado e não altera nada.
+- **Varredura com `setInterval`.** Com várias instâncias, cada uma roda a sua; republicar e fechar podem acontecer várias vezes sem efeito, então o custo é só consulta repetida.
+- **Painel por polling (1 min; 3 s no lote em andamento)** em vez de WebSocket, e login único com usuário e senha fixos por variável de ambiente, conforme pedido.
+
+## E se o lote tivesse 20.000 SKUs?
+
+O limite está no `/enrich`: 3 chamadas em paralelo de ~600 ms dão **~5 itens/s**, ou seja, **~67 min por lote** (~73 min com os retries de 500). Nada no nosso lado deixa isso mais rápido, a não ser fazer menos chamadas; a pergunta passa de "quão rápido" para "aguenta uma hora sem perder nada". ACK, idempotência, limite global, retomada após restart e a varredura já funcionam nessa escala. Mudaria:
+
+1. **Contador de finalizados em vez de contagem.** Hoje cada item finalizado conta os itens do lote para decidir se ele fechou: 20.000 contagens de até 20.000 linhas. Um contador em `batch_runs`, incrementado na mesma transação que finaliza o item, reduz a verificação a comparar dois números.
+2. **Cache por SKU dentro do lote.** SKUs repetidos não precisam de outra chamada ao `/enrich`; é a única alavanca de tempo disponível (desde que preço e estoque não mudem durante o lote).
+3. **Callback montado em páginas.** Ler os itens do banco por cursor e enviar um payload de ~1,5 MB com timeout maior, confirmando o limite de tamanho com a plataforma.
+4. **Workers separados da API e escalados à parte**, para um deploy não pausar uma hora de processamento; publicação e republicação em lote (`addBulk`).
+5. **Visibilidade e justiça.** Vazão e previsão de término no painel, paginação no detalhe do lote, e prioridade ou intercalação por lote, para que um lote pequeno não espere uma hora atrás de um grande na mesma fila.
