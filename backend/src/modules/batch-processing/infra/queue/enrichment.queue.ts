@@ -15,6 +15,8 @@ export interface EnrichmentJobData {
   sku: string;
 }
 
+export const ENRICH_MAX_IN_FLIGHT = 3;
+export const ENRICH_ATTEMPTS = 10;
 const ONE_HOUR_S = 60 * 60;
 
 @Injectable()
@@ -34,6 +36,8 @@ export class EnrichmentQueue
     super(ENRICHMENT_QUEUE, {
       connection,
       defaultJobOptions: {
+        attempts: ENRICH_ATTEMPTS,
+        backoff: { type: "exponential", delay: 500, jitter: 0.5 },
         removeOnComplete: { age: ONE_HOUR_S },
         removeOnFail: { age: 24 * ONE_HOUR_S },
       },

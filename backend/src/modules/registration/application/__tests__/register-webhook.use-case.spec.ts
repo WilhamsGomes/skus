@@ -15,7 +15,7 @@ describe('RegisterWebhookUseCase', () => {
 
   beforeEach(() => {
     gateway = { register: jest.fn().mockResolvedValue({ cid: 'clx-cid', token: 'tok' }) };
-    repository = { save: jest.fn().mockResolvedValue(undefined), findCurrent: jest.fn() };
+    repository = { save: jest.fn().mockResolvedValue(undefined), findCurrent: jest.fn(), findByCid: jest.fn() };
     useCase = new RegisterWebhookUseCase(gateway, repository);
   });
 

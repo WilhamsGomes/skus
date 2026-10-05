@@ -21,6 +21,11 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     });
     return row ? toDomain(row) : null;
   }
+
+  async findByCid(cid: string): Promise<Registration | null> {
+    const row = await this.prisma.registration.findUnique({ where: { cid } });
+    return row ? toDomain(row) : null;
+  }
 }
 
 function toDomain(row: RegistrationRow): Registration {

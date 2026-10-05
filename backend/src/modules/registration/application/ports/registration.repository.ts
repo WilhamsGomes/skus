@@ -8,4 +8,5 @@ export abstract class RegistrationRepository {
   abstract save(registration: Registration): Promise<void>;
   /** Registro mais recente; `null` se o serviço nunca foi registrado. */
   abstract findCurrent(): Promise<Registration | null>;
+  abstract findByCid(cid: string): Promise<Registration | null>;
 }

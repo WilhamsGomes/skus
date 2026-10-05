@@ -21,9 +21,9 @@ describe('RequestBatchUseCase', () => {
   let useCase: RequestBatchUseCase;
 
   beforeEach(() => {
-    registrations = { save: jest.fn(), findCurrent: jest.fn().mockResolvedValue(registration) };
+    registrations = { save: jest.fn(), findCurrent: jest.fn().mockResolvedValue(registration), findByCid: jest.fn() };
     platform = { requestBurst: jest.fn().mockResolvedValue(ticket) };
-    runs = { open: jest.fn().mockResolvedValue(undefined) };
+    runs = { open: jest.fn().mockResolvedValue(undefined), find: jest.fn() };
     useCase = new RequestBatchUseCase(registrations, platform, runs);
   });
 

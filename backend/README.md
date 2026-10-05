@@ -42,7 +42,7 @@ Painel da fila de enriquecimento (Bull Board) em `http://localhost:4000/queues`:
 | `POST /registration` | Chama `POST /register` da plataforma e salva `cid`/`token` em `registrations`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede/contrato. **Não devolve o token** (endpoint exposto pelo túnel). |
 | `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
 | `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
-| `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. Depois do insert publica o job `enrich` na fila BullMQ `enrichment` (`jobId = run_id-seq`), com teto de 200 ms; se a publicação falhar, responde 200 mesmo assim. **Ainda não há worker** consumindo a fila. |
+| `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. Depois do insert publica o job `enrich` na fila BullMQ `enrichment` (`jobId = run_id-seq`), com teto de 200 ms; se a publicação falhar, responde 200 mesmo assim. O `EnrichmentWorker` (mesmo processo) consome a fila e chama `GET /enrich/:sku`. |
 | `POST /batches` | Chama `POST /burst/:cid` da plataforma com `x-token` do registro vigente e devolve `{runId, total, startedAt}`. A plataforma passa a chamar `/process`. 409 se o serviço não foi registrado; 502 para falha de rede/contrato. Grava a execução em `batch_runs` (`run_id`, `cid`, `total`, `OPEN`) com upsert. |
 
 ## Arquitetura
@@ -135,7 +135,7 @@ Casos de uso e portas previstos:
 | `RequestBatch` ✅ (`POST /batches`) | `BatchPlatformClient` ✅, `BatchRunStore.open` ✅ (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. Guarda o `cid` do burst para o callback. |
 | `ReceiveBatchItem` ✅ + publicação ✅ | `EnrichmentJobPublisher` ✅ | Após gravar, publica job com `jobId = run_id-seq` (o BullMQ não aceita `:`), também nas duplicatas. Publish limitado a 200 ms: `queue.add` espera a conexão e, com o Redis fora, ficaria pendurado. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
 | `RepublishPendingItems` | `BatchItemStore.findStalePending`, `EnrichmentJobPublisher` | Varredura periódica de itens `RECEIVED` antigos. Banco e fila não são transacionais; isso fecha a janela de queda entre os dois. |
-| `EnrichBatchItem` (worker) | `EnrichmentClient`, `BatchItemStore.recordEnrichment` | Update condicional (só se ainda não terminal), o que torna jobs repetidos inofensivos. |
+| `EnrichBatchItem` ✅ (worker) | `BatchRunStore.find`, `RegistrationRepository.findByCid`, `EnrichmentClient`, `BatchItemStore` | Credenciais do `cid` da execução. Update condicional (`WHERE status = 'RECEIVED'`), o que torna jobs repetidos inofensivos. Execução ainda não gravada (`/process` antes do `/burst` responder) vira retry. |
 | `ConsolidateBatch` | `BatchRunStore.claimForCallback`, `BatchResultReader`, `CallbackClient` | Claim atômico: só se `concluídos == total` e status permitir. Assim nenhum callback sai de lote incompleto. |
 
 Tolerância a falhas e concorrência no enriquecimento:
@@ -143,7 +143,8 @@ Tolerância a falhas e concorrência no enriquecimento:
 - **Limite de 3 em voo, global:** concorrência global da fila BullMQ (`setGlobalConcurrency(3)`), que vale para
   todos os workers conectados, e não só para o `concurrency` local de cada processo.
 - **429 + `retry-after`:** pausa a fila pelo tempo indicado (rate limit do worker), em vez de dormir segurando o slot.
-- **500:** retry com backoff exponencial e jitter. **401:** falha imediata (credencial). **404:** falha permanente do item.
+- **500, timeout (5 s), rede ou resposta fora do contrato:** retry com backoff exponencial (500 ms, ×2, jitter 50%), até 10 tentativas. **401** ou registro do `cid` ausente: `UnrecoverableError`, sem retry; o item fica `RECEIVED` com `last_error`. **404:** item `FAILED` (`sku_not_found`), sem retry.
+- `attempts` em `batch_items` conta chamadas ao `/enrich` que tiveram resposta tratada (429 não conta: é controle de vazão, não falha).
 - **Callback:** at-least-once. A plataforma aceita reenvios, então falhas são repetidas. Não prometemos exactly-once.
 - Headers (`x-cid`, `x-token`) e payloads da plataforma ficam só nos adapters HTTP.
 

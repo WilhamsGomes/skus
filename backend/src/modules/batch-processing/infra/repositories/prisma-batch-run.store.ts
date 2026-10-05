@@ -15,4 +15,11 @@ export class PrismaBatchRunStore implements BatchRunStore {
       update: {},
     });
   }
+
+  async find(runId: string): Promise<BatchRun | null> {
+    const row = await this.prisma.batchRun.findUnique({ where: { runId } });
+    if (!row) return null;
+    const { cid, total, status, startedAt } = row;
+    return { runId, cid, total, status, startedAt };
+  }
 }

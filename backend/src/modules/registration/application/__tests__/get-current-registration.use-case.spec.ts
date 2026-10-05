@@ -4,7 +4,7 @@ import type { RegistrationRepository } from '../ports/registration.repository';
 import { RegistrationNotFoundError } from '../registration.errors';
 
 describe('GetCurrentRegistrationUseCase', () => {
-  const repository: jest.Mocked<RegistrationRepository> = { save: jest.fn(), findCurrent: jest.fn() };
+  const repository: jest.Mocked<RegistrationRepository> = { save: jest.fn(), findCurrent: jest.fn(), findByCid: jest.fn() };
   const useCase = new GetCurrentRegistrationUseCase(repository);
 
   it('returns the most recent registration without the token', async () => {
