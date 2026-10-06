@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sku
+      POSTGRES_PASSWORD: sku
+      POSTGRES_DB: sku_integration
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sku -d sku_integration"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://sku:sku@postgres:5432/sku_integration?schema=public
+      REDIS_URL: redis://redis:6379
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://dev-wdu-ped-test-1014944555984.us-central1.run.app}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-admin}
+      AUTH_SECRET: ${AUTH_SECRET:-dev-only-secret-change-me}
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+  ngrok:
+    image: ngrok/ngrok:3-alpine
+    profiles: ["tunnel"]
+    depends_on:
+      - backend
+    command: ["http", "backend:4000"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - "${NGROK_INSPECT_PORT:-4041}:4040"
+
+volumes:
+  postgres-data:
+  redis-data:

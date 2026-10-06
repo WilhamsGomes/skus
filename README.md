@@ -13,10 +13,71 @@ O backend é a solução do desafio e funciona sozinho. O painel web e o simulad
 
 ## Como executar
 
+### Com Docker (um comando)
+
+Pré-requisitos: Docker e uma URL HTTPS pública para o backend (ngrok), porque a plataforma chama `/check` e `/process`.
+
+**1. Libere a porta 4000.** Se o backend estiver rodando em modo de desenvolvimento (`npm run start:dev`), pare-o: o container usa a mesma porta.
+
+**2. Suba a stack** na raiz do repositório. A primeira vez leva alguns minutos (build das imagens):
+
+```bash
+docker compose up -d --build
+```
+
+Sobe Postgres, Redis, backend (aplica as migrations ao iniciar) e painel. Para conferir:
+
+```bash
+docker compose ps                # postgres e redis "healthy", backend e frontend "running"
+docker compose logs -f backend   # deve aparecer "API rodando em http://localhost:4000"
+```
+
+| Serviço | Endereço |
+|---|---|
+| Painel | http://localhost:8080 (login `admin` / `admin`) |
+| API e Swagger | http://localhost:4000 · http://localhost:4000/docs |
+| Filas (Bull Board) | http://localhost:4000/queues |
+
+**3. Exponha o backend.** Escolha uma opção:
+
+- **ngrok instalado na máquina:** `ngrok http 4000`. A URL HTTPS aparece no terminal.
+- **ngrok pelo compose:** defina `NGROK_AUTHTOKEN` (veja as variáveis abaixo) e rode `docker compose --profile tunnel up -d`. A URL aparece em http://localhost:4041. A conta gratuita permite um túnel por vez: pare o ngrok local antes.
+
+**4. Abra o painel** em http://localhost:8080 e entre com `admin` / `admin`.
+
+**5. Registre o webhook:** menu **Registro** → nome e URL HTTPS do ngrok → **Registrar**. A plataforma chama `<url>/check` nesse momento, então o túnel precisa estar ativo. Se a URL do ngrok não mudou desde o último registro, este passo pode ser pulado.
+
+**6. Solicite um lote:** botão **Solicitar lote** na barra superior. O painel abre o lote e atualiza a cada 3 s; em poucos segundos os itens são enriquecidos, o callback é enviado e o relatório da plataforma aparece com o score.
+
+**Para parar:** `docker compose down` mantém os dados; `docker compose down -v` apaga banco e Redis.
+
+#### Variáveis de ambiente
+
+Nenhuma é obrigatória para subir a stack: todas têm padrão. Só `NGROK_AUTHTOKEN` é necessária, e apenas para o perfil `tunnel`. Para mudar algum valor, copie o exemplo e edite (o compose lê o `.env` da raiz automaticamente; ele está no `.gitignore`):
+
+```bash
+cp .env.example .env
+```
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `NGROK_AUTHTOKEN` | — | Token da conta ngrok; obrigatório só com `--profile tunnel` |
+| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` | `admin` / `admin` | Login do painel |
+| `AUTH_SECRET` | segredo de desenvolvimento | Assina o token do painel (mínimo 16 caracteres); troque fora do ambiente local |
+| `PLATFORM_BASE_URL` | URL da plataforma do desafio | Plataforma usada pelo backend |
+| `BACKEND_PORT` | `4000` | Porta da API no host; se mudar, aponte o ngrok para a nova porta |
+| `FRONTEND_PORT` | `8080` | Porta do painel no host |
+| `POSTGRES_PORT` / `REDIS_PORT` | `5432` / `6379` | Portas do Postgres e do Redis no host |
+| `NGROK_INSPECT_PORT` | `4041` | Painel do ngrok do compose (mostra a URL pública) |
+
+A conexão do backend com Postgres e Redis é configurada pelo próprio compose; não é preciso informar `DATABASE_URL` nem `REDIS_URL`. Se a porta 4000 estiver ocupada, uma alternativa é `BACKEND_PORT=4002 docker compose up -d --build` com `ngrok http 4002`.
+
+### Em modo de desenvolvimento
+
 Pré-requisitos: Node.js ≥ 20.19, Docker e ngrok.
 
 ```bash
-# 1. Backend: Postgres + Redis, migrations e API em http://localhost:4000
+# 1. Backend: Postgres + Redis do compose, migrations e API em http://localhost:4000
 cd backend
 cp .env.example .env
 npm install
@@ -34,6 +95,8 @@ npm run dev
 ```
 
 No painel: **Registro** → informe a URL do ngrok → **Solicitar lote**. O mesmo fluxo por `curl` está no [README do backend](backend/README.md).
+
+Neste modo as variáveis ficam em `backend/.env` (criado a partir de `backend/.env.example`; nenhuma precisa ser alterada para rodar localmente), descritas no [README do backend](backend/README.md#configuração). Os dois modos usam o mesmo Postgres e o mesmo Redis (porta 5432 e 6379). Não rode o backend dos dois ao mesmo tempo: ambos usam a porta 4000.
 
 **Sobre o painel:** o frontend não faz parte do fluxo de integração; a plataforma conversa só com o backend. Ele é uma forma de ver os dados de maneira mais ampla e detalhada do que logs e consultas no banco: histórico de lotes, cada item com tentativas e erros, estado das filas, memória do Redis e o relatório completo de cada entrega. As duas ações que ele oferece (registrar e solicitar lote) chamam os mesmos endpoints do backend que o `curl`.
 
