@@ -85,6 +85,19 @@ O backend principal (`:4000`, banco e Redis db `0`, ligado à plataforma real) n
 |---|---|
 | 100 SKUs, latência real + túnel | score 100 · ACK p50 470 ms / p95 522 ms · 4,2 itens/s (a plataforma real deu 469/506 ms e ~4 itens/s) |
 | 20.000 SKUs, `/enrich` 20× mais rápido, sem túnel | score 100 · 20.000/20.000 corretos · 2.275 erros 500 recuperados · 0 respostas 429 · 200 duplicatas sem chamada extra · ~58 itens/s |
+| 20.000 SKUs, latência real + túnel | **não executada** (ver abaixo) |
+
+**A simulação de 20.000 SKUs com latência real não foi executada para esta entrega.** Ela leva cerca de 70 minutos, porque o limite do `/enrich` (3 chamadas de 400–800 ms) dá ~5 itens/s, e esse é justamente o tempo que a seção [E se o lote tivesse 20.000 SKUs?](#e-se-o-lote-tivesse-20000-skus) estima. As duas execuções acima cobrem o que ela verificaria, por partes:
+
+- **Comportamento com latência real** (ACK, vazão, retries, 429): validado com 100 SKUs, com números próximos aos da plataforma real.
+- **Correção em escala** (20.000 itens corretos, duplicatas, 500, fechamento do lote e callback grande): validada com 20.000 SKUs e o `/enrich` acelerado.
+
+A duração de ~70 min para 20.000 SKUs é, portanto, uma estimativa a partir da vazão medida, não uma medição. Para obtê-la:
+
+```bash
+cd simulator
+npm run sim:20k        # ~70 min; o relatório fica em simulator/reports/<run_id>.json
+```
 
 ## Decisões de arquitetura
 
@@ -111,7 +124,7 @@ O backend principal (`:4000`, banco e Redis db `0`, ligado à plataforma real) n
 
 ## E se o lote tivesse 20.000 SKUs?
 
-O limite está no `/enrich`: 3 chamadas em paralelo de ~600 ms dão **~5 itens/s**, ou seja, **~67 min por lote** (~73 min com os retries de 500). Nada no nosso lado deixa isso mais rápido, a não ser fazer menos chamadas; a pergunta passa de "quão rápido" para "aguenta uma hora sem perder nada". O [simulador](#simulador-lotes-grandes) confirmou que ACK, idempotência, limite global, retries e fechamento do lote funcionam com 20.000 itens. Ele também mostrou que, enquanto as 20.000 mensagens chegam, o enriquecimento cai de ~58 para ~10 itens/s, porque API e worker dividem o mesmo processo e o mesmo pool do banco (o ACK não sofre). Mudaria:
+O limite está no `/enrich`: 3 chamadas em paralelo de ~600 ms dão **~5 itens/s**, ou seja, **~67 min por lote** (~73 min com os retries de 500). Nada no nosso lado deixa isso mais rápido, a não ser fazer menos chamadas; a pergunta passa de "quão rápido" para "aguenta uma hora sem perder nada". O [simulador](#simulador-lotes-grandes) confirmou, com o `/enrich` acelerado, que ACK, idempotência, limite global, retries e fechamento do lote funcionam com 20.000 itens; a duração de ~70 min é estimada a partir da vazão medida com latência real, não medida num lote de 20.000. Ele também mostrou que, enquanto as 20.000 mensagens chegam, o enriquecimento cai de ~58 para ~10 itens/s, porque API e worker dividem o mesmo processo e o mesmo pool do banco (o ACK não sofre). Mudaria:
 
 1. **Contador de finalizados em vez de contagem.** Hoje cada item finalizado conta os itens do lote para decidir se ele fechou: 20.000 contagens de até 20.000 linhas. Um contador em `batch_runs`, incrementado na mesma transação que finaliza o item, reduz a verificação a comparar dois números.
 2. **Cache por SKU dentro do lote.** SKUs repetidos não precisam de outra chamada ao `/enrich`; é a única alavanca de tempo disponível (desde que preço e estoque não mudem durante o lote).

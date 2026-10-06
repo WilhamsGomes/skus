@@ -1,10 +1,8 @@
-# SKU Enrichment Integration
+# Backend · SKU Enrichment Integration
 
-Backend que se registra na plataforma, recebe lotes de SKUs via `/process`, confirma rápido,
-enriquece os itens de forma assíncrona (`GET /enrich/:sku`) e devolve o resultado em `/callback`.
+API NestJS que se registra na plataforma, recebe lotes em `POST /process`, confirma cada mensagem em milissegundos, enriquece os itens numa fila (`GET /enrich/:sku`, até 3 em voo) e devolve o lote consolidado em `POST /callback`.
 
-> **Estado atual: estrutura inicial.** Implementados: `GET /health`, `POST /check` e o caminho de
-> recebimento de `/process` (persistência idempotente). O restante do fluxo está desenhado abaixo, ainda não implementado.
+Visão geral, melhor execução, decisões, trade-offs e o cenário de 20.000 SKUs estão no [README da raiz](../README.md). Este arquivo cobre só o backend.
 
 ## Como executar
 
@@ -19,146 +17,130 @@ npm run start:dev        # http://localhost:4000
 ```
 
 ```bash
-npm test                 # testes unitários e de controller (não precisam de Docker)
+npm test                 # 148 testes (não precisam de Docker)
+npm run typecheck
 npm run build
 ```
 
-Para expor publicamente e registrar o serviço (o app precisa estar no ar: a plataforma chama `/check` durante o registro):
+Para registrar o serviço e pedir um lote sem o painel (o app precisa estar no ar: a plataforma chama `/check` durante o registro):
 
 ```bash
 ngrok http 4000
-TOKEN=$(curl -s -X POST http://localhost:4000/auth/login -H "content-type: application/json"   -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"accessToken":"\([^"]*\)".*//p')
-curl -X POST http://localhost:4000/registration -H "authorization: Bearer $TOKEN"   -H "content-type: application/json" -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok.app"}'
-curl -X POST http://localhost:4000/batches -H "authorization: Bearer $TOKEN"   # as mensagens chegam em /process
+
+TOKEN=$(curl -s -X POST http://localhost:4000/auth/login -H "content-type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+
+curl -X POST http://localhost:4000/registration -H "authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" -d '{"name":"Seu Nome","webhook":"https://xxxx.ngrok-free.app"}'
+
+curl -X POST http://localhost:4000/batches -H "authorization: Bearer $TOKEN"
 ```
 
-Documentação interativa (Swagger) em `http://localhost:4000/docs`.
-Ou use o painel em `../frontend` (`npm run dev`, login `admin`/`admin`), que faz o registro e pede lotes pela interface.
+| Ferramenta | Endereço |
+|---|---|
+| Swagger | `http://localhost:4000/docs` |
+| Bull Board (filas) | `http://localhost:4000/queues`, só por acesso direto em `localhost`; pelo túnel devolve 404 |
+| Painel | [`../frontend`](../frontend/README.md) (opcional) |
 
-Painel das filas (Bull Board) em `http://localhost:4000/queues`: só responde para acesso direto em `localhost`; pelo túnel (header `x-forwarded-for` ou host externo) devolve 404.
+## Configuração
 
-## Endpoints implementados
+| Variável | Padrão | |
+|---|---|---|
+| `PORT` | `4000` | |
+| `DATABASE_URL` | — | `postgresql://…` (obrigatória) |
+| `REDIS_URL` | — | `redis://…` (obrigatória) |
+| `PLATFORM_BASE_URL` | URL da plataforma do desafio | o simulador aponta para a plataforma falsa |
+| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` | `admin` / `admin` | login único |
+| `AUTH_SECRET` | segredo de desenvolvimento | assina o JWT; mínimo 16 caracteres |
+
+O ambiente é validado no startup: o app não sobe com variável inválida, nem sem Postgres ou Redis acessíveis.
+
+## Endpoints
+
+Todos exigem `Authorization: Bearer <token>`, exceto `/check`, `/process` (chamados pela plataforma) e `/auth/login`.
 
 | Endpoint | Comportamento |
 |---|---|
-| `GET /health` | 200 com `{status, checks: {database, redis}}`; 503 se alguma dependência estiver fora. |
-| `POST /auth/login` | Login único do dashboard (`DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD`, padrão `admin`/`admin`); devolve um JWT de 8 h assinado com `AUTH_SECRET`. Um guard global exige `Authorization: Bearer` em tudo, exceto `/check`, `/process` e o próprio login. |
-| `POST /registration` | Chama `POST /register` da plataforma e salva `cid`/`token` em `registrations`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede/contrato. **Não devolve o token** (endpoint exposto pelo túnel). |
-| `GET /registration` | Registro vigente (mais recente), sem o token; 404 se nunca registrado. |
-| `POST /check` | Devolve `{token}` recebido com **200** (o padrão do Nest para POST seria 201). Não consulta credenciais: a plataforma chama `/check` *durante* o `/register`, antes de termos o token. |
-| `POST /process` | Valida o payload, grava o item com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)` e responde `200 {ok: true}`, inclusive para duplicatas. Depois do insert publica o job `enrich` na fila BullMQ `enrichment` (`jobId = run_id-seq`), com teto de 200 ms; se a publicação falhar, responde 200 mesmo assim. O `EnrichmentWorker` (mesmo processo) consome a fila e chama `GET /enrich/:sku`. |
-| `POST /batches` | Chama `POST /burst/:cid` da plataforma com `x-token` do registro vigente e devolve `{runId, total, startedAt}`. A plataforma passa a chamar `/process`. 409 se o serviço não foi registrado; 502 para falha de rede/contrato. Grava a execução em `batch_runs` (`run_id`, `cid`, `total`, `OPEN`) com upsert. |
-| `POST /batches/:runId/callback` | Reenvia o callback de um lote concluído (202 com `added`/`retried`/`already_queued`); cada envio gera um novo relatório e uma linha em `callback_deliveries`. 404 lote inexistente; 409 lote ainda aberto. |
-| `GET /dashboard/*` | Leitura para o painel: `overview`, `runs`, `runs/:runId`, `items`, `queues`, `cache`, `deliveries`, `deliveries/:id`, `registrations`. Consultas diretas no Prisma/BullMQ/Redis, sem casos de uso: é só projeção, sem regra de negócio. |
+| `POST /check` | Devolve o `{token}` recebido com **200**. Não confere credenciais: a plataforma chama `/check` durante o `/register`, antes de termos o token. |
+| `POST /process` | Valida, grava com `INSERT … ON CONFLICT DO NOTHING` em `(run_id, seq)`, publica o job (`jobId = run_id-seq`, teto de 200 ms) e responde `200 {ok: true}`, inclusive para duplicatas. Falha no insert → 500 (a plataforma reentrega); falha no publish → 200 (a varredura republica). |
+| `POST /auth/login` | Usuário e senha fixos (comparação em tempo constante); devolve um JWT de 8 h. |
+| `POST /registration` | Chama `POST /register` e salva `cid`/`token`. 422 `handshake_failed` repassa o motivo da plataforma; 502 para falha de rede ou contrato. Não devolve o token. |
+| `GET /registration` | Registro vigente, sem o token; 404 se nunca registrado. |
+| `POST /batches` | Chama `POST /burst/:cid` e grava a execução (`run_id`, `cid`, `total`). 409 se não registrado; 502 para falha da plataforma. |
+| `POST /batches/:runId/callback` | Reenvia o callback de um lote concluído (202). Cada envio gera um novo relatório e uma linha em `callback_deliveries`. 404 lote inexistente; 409 lote aberto. |
+| `GET /dashboard/*` | Leitura para o painel: `overview`, `runs`, `runs/:runId`, `items`, `queues`, `cache`, `deliveries`, `deliveries/:id`, `registrations`. |
 
-## Arquitetura
+## Estrutura
 
-Organização por **capacidade de negócio**, com camadas dentro de cada módulo:
+Módulos por capacidade, com camadas dentro de cada um. Testes em `__tests__/` ao lado do código.
 
 ```
 src/
-├── main.ts                          # bootstrap
-├── app.module.ts                    # composition root
-├── generated/prisma/                # Prisma Client gerado (fora do git)
+├── main.ts · app.module.ts
 ├── shared/
-│   ├── config/                      # único ponto que lê process.env; valida no startup
-│   ├── infra/
-│   │   ├── http/http.config.ts      # pipeline HTTP comum (ValidationPipe), usado também nos testes
-│   │   └── prisma/                  # PrismaModule (global) + PrismaService
-│   └── interceptors/                # log de requisições HTTP
+│   ├── auth/                 # decorator @Public
+│   ├── config/               # único ponto que lê process.env; valida no startup
+│   ├── infra/                # http (ValidationPipe, Swagger), prisma, redis
+│   └── interceptors/         # log de requisições
 └── modules/
-    ├── health/                      # endpoint operacional (fala direto com a infra)
-    ├── registration/                # handshake /check, registro e credenciais (cid/token)
-    │   ├── domain/                  # tipos Registration / PlatformCredentials
-    │   ├── application/             # RegisterWebhookUseCase, erros e ports/
-    │   ├── infra/                   # http/ (POST /register) e repositories/ (Prisma)
-    │   ├── presentation/            # controllers + dto/ (request/response separados)
-    │   └── registration.module.ts   # liga portas a adapters (useClass); exporta RegistrationRepository
-    └── batch-processing/            # recebimento, enriquecimento, consolidação, callback
-        ├── domain/                  # TypeScript puro
-        ├── application/             # casos de uso + portas
-        ├── infra/repositories/      # adapters (Prisma; depois HTTP e BullMQ em infra/)
-        ├── presentation/            # controllers + dto/ (depois: workers)
-        └── batch-processing.module.ts   # liga portas a adapters
-```
-Testes ficam em `__tests__/` ao lado do código testado.
-
-**Direção das dependências:** `presentation → application → domain`. `infra` implementa as portas
-declaradas em `application`. O domínio é TypeScript puro, sem Nest.
-
-**Injeção de dependência:** cada porta é uma `abstract class` (e não `interface`, que some na compilação e não
-pode ser token do Nest). O `*.module.ts` liga porta e implementação com `{ provide: Porta, useClass: Adapter }`,
-e quem consome injeta só pelo tipo, sem `@Inject(TOKEN)`:
-
-```ts
-// registration.module.ts
-{ provide: RegistrationRepository, useClass: PrismaRegistrationRepository }
-
-// register-webhook.use-case.ts — depende da abstração, não do Prisma
-constructor(private readonly repository: RegistrationRepository) {}
+    ├── registration/         # /check, registro e credenciais
+    ├── batch-processing/     # recebimento, enriquecimento, fechamento, callback, varredura
+    │   ├── domain/           # ReceivedItem, EnrichmentResult, BatchRun (TypeScript puro)
+    │   ├── application/      # casos de uso, erros e ports/
+    │   ├── infra/            # http/ (plataforma), queue/ (BullMQ, workers, Bull Board),
+    │   │                     # repositories/ (Prisma), scheduling/ (varredura)
+    │   └── presentation/     # controllers, dto/, filters/
+    ├── auth/                 # login, JWT e guard global
+    └── dashboard/            # consultas de leitura para o painel (queries/)
 ```
 
-Trade-off aceito: casos de uso e adapters levam `@Injectable()`, ou seja, `application/` conhece o Nest. Em troca,
-o module fica enxuto e o padrão é o da documentação oficial. Um teste de wiring (`registration.module.spec.ts`)
-compila o módulo real para pegar erros de DI. Por exemplo, `import type` de uma porta num construtor
-decorado apaga o token e quebra a injeção só em runtime.
+**Dependências:** `presentation → application → domain`; `infra` implementa as portas declaradas em `application`. Cada porta é uma `abstract class` (uma `interface` some na compilação e não serve de token do Nest), ligada ao adapter no módulo com `{ provide: Porta, useClass: Adapter }`. Testes de montagem compilam cada módulo real para pegar erros de injeção que só apareceriam em runtime.
 
-**Por que dois módulos e não mais:** recebimento, enriquecimento e consolidação compartilham o mesmo modelo
-(o item do lote e sua execução) e a mesma regra de completude. Separá-los criaria contextos acoplados pelo mesmo dado.
-Registro/credenciais é outra capacidade, com ciclo de vida próprio.
+**`dashboard` não tem casos de uso:** só lê e agrega dados (Prisma, BullMQ, Redis), sem regra de negócio.
 
-### Modelagem de domínio
+### Modelagem
 
-| Conceito | Tipo | Justificativa | Estado |
-|---|---|---|---|
-| `ReceivedItem` | Value object | Invariantes da mensagem recebida (seq inteiro ≥ 0, SKU não vazio e preservado). `key` = `run_id:seq`: chave de deduplicação e, depois, `jobId`. | ✅ |
-| `BatchItem` | Entidade (agregado próprio) | Ciclo de vida `RECEIVED → ENRICHED / FAILED`, com estados terminais imutáveis. | planejado |
-| `EnrichmentResult` | Value object | price ≥ 0, stock inteiro ≥ 0. | planejado |
-| `BatchRun` | Agregado | `total` esperado e status do callback (`OPEN → COMPLETED`). Decide completude por **contagem**, sem carregar itens. | dados ✅, regra de completude planejada |
-| Credenciais (cid, token) | Registro simples | Sem comportamento: não vira entidade. | ✅ |
-
-O item é um agregado separado da execução: cada mensagem altera só o próprio item, sem disputar
-lock com as outras. Isso também evita carregar 20.000 itens para decidir algo.
-
-### Decisões
-
-- **ACK durável e idempotente:** `/process` só faz um insert (~ms) e responde. A porta `BatchItemInbox.recordIfNew`
-  explicita a atomicidade no contrato, então não existe "consultar e depois inserir". Duplicatas respondem 2xx para a plataforma não reenviar.
-- **Sem FK de item para execução:** mensagens podem chegar antes de persistirmos a resposta do `/burst`.
-- **Jest** (em vez de Vitest): integra com Nest/ts-jest sem plugins. Vitest usa esbuild, que não emite
-  `emitDecoratorMetadata`; os testes de controller com DI do Nest exigiriam SWC.
-- **Nest 11 / TypeScript 5.9:** Nest 12 é ESM-only (atrito com Jest), e o ts-jest ainda não suporta TS 7.
-  **Prisma 7** com driver adapter `pg`.
-- **Validação:** `class-validator` nos DTOs HTTP e no ambiente (uma única biblioteca). O domínio revalida as próprias invariantes.
-
-## Casos de uso e portas
-
-Casos de uso e portas previstos:
-
-| Caso de uso | Portas | Notas |
+| Conceito | Tipo | Papel |
 |---|---|---|
-| `RegisterWebhook` ✅ (`POST /registration`) | `PlatformRegistrationGateway`, `RegistrationRepository` | `POST /register`; persiste `cid`/`token`. Trata 422 `handshake_failed`. |
-| `RequestBatch` ✅ (`POST /batches`) | `BatchPlatformClient` ✅, `BatchRunStore.open` ✅ (upsert) | `POST /burst/:cid` com `x-token`; usa o `total` retornado, nunca 20 fixo. Guarda o `cid` do burst para o callback. |
-| `ReceiveBatchItem` ✅ + publicação ✅ | `EnrichmentJobPublisher` ✅ | Após gravar, publica job com `jobId = run_id-seq` (o BullMQ não aceita `:`), também nas duplicatas. Publish limitado a 200 ms: `queue.add` espera a conexão e, com o Redis fora, ficaria pendurado. Se a publicação falhar, o ACK não falha: o reconciliador cobre. |
-| `ReconcileStaleWork` ✅ (`StaleWorkReconciler`, a cada 30 s) | `BatchItemStore.findStale`, `BatchRunStore.findOpenRunIds` / `findPendingCallbackRunIds`, `republish` dos dois publishers | Banco e fila não são transacionais; a varredura fecha essa janela. Pega o que está parado há mais de 60 s: itens `RECEIVED` (até 30 tentativas acumuladas), lotes `OPEN` das últimas 24 h que já podem fechar, e lotes `COMPLETED` sem `callback_sent_at`. `republish` olha o estado do job: inexistente → `add`; `failed` → `retry()` (um `add` com o mesmo `jobId` seria ignorado); `completed` → remove e adiciona; demais → nada. Testado com lote real: jobs apagados da fila, itens recuperados e callback com score 100. |
-| `EnrichBatchItem` ✅ (worker) | `BatchRunStore.find`, `RegistrationRepository.findByCid`, `EnrichmentClient`, `BatchItemStore` | Credenciais do `cid` da execução. Update condicional (`WHERE status = 'RECEIVED'`), o que torna jobs repetidos inofensivos. Execução ainda não gravada (`/process` antes do `/burst` responder) vira retry. |
-| `CloseBatchRun` ✅ + `SendBatchCallback` ✅ | `BatchRunStore.claimCompletion`, `CallbackJobPublisher`, `BatchItemStore.listForCallback`, `BatchPlatformClient.sendResult` | Após cada item final, um único `UPDATE … WHERE status = 'OPEN' AND total <= (finalizados)` decide quem fecha o lote (só um vence). O vencedor publica um job na fila `callback` (`jobId = run_id`); o `CallbackWorker` envia `POST /callback` ordenado por `seq` e guarda a resposta em `batch_runs.callback_report`. |
+| `ReceivedItem` | Value object | Invariantes da mensagem (`seq` inteiro ≥ 0, `run_id` e SKU não vazios); `key` = `run_id:seq` |
+| `EnrichmentResult` | Value object | `price` ≥ 0 e `stock` inteiro ≥ 0; resposta fora disso é tratada como erro transitório |
+| `BatchRun` | Registro | `cid`, `total` e status `OPEN → COMPLETED`; a completude é decidida por um `UPDATE` atômico, sem carregar itens |
+| Item do lote | Linha em `batch_items` | `RECEIVED → ENRICHED / FAILED`; toda transição é condicional (`WHERE status = 'RECEIVED'`), então estados finais não mudam |
+| Credenciais | Registro | `cid` + `token`; sem comportamento |
 
-Tolerância a falhas e concorrência no enriquecimento:
+Cada item muda só a própria linha, sem disputar lock com os outros itens do lote. Itens não têm FK para a execução: um `/process` pode chegar antes de gravarmos a resposta do `/burst`.
 
-- **Limite de 3 em voo, global:** concorrência global da fila BullMQ (`setGlobalConcurrency(3)`), que vale para
-  todos os workers conectados, e não só para o `concurrency` local de cada processo.
-- **429 + `retry-after`:** pausa a fila pelo tempo indicado (rate limit do worker), em vez de dormir segurando o slot.
-- **500, timeout (5 s), rede ou resposta fora do contrato:** retry com backoff exponencial (500 ms, ×2, jitter 50%), até 10 tentativas. **401** ou registro do `cid` ausente: `UnrecoverableError`, sem retry; o item fica `RECEIVED` com `last_error`. **404:** item `FAILED` (`sku_not_found`), sem retry.
-- `attempts` em `batch_items` conta chamadas ao `/enrich` que tiveram resposta tratada (429 não conta: é controle de vazão, não falha).
-- **Callback:** at-least-once, em fila própria (6 tentativas, backoff exponencial a partir de 1 s). 429/5xx/rede: retry; outros 4xx: falha definitiva. A plataforma aceita reenvios. Não prometemos exactly-once.
-- **Itens `FAILED` (404)** vão no callback com `price` e `stock` nulos.
-- Headers (`x-cid`, `x-token`) e payloads da plataforma ficam só nos adapters HTTP.
+## Casos de uso
 
-Questão em aberto (os PDFs não definem): como representar no callback um item com 404. Adotado: `price`/`stock` nulos.
+| Caso de uso | Disparado por | O que faz |
+|---|---|---|
+| `RegisterWebhook` | `POST /registration` | `POST /register` e persiste as credenciais |
+| `RequestBatch` | `POST /batches` | `POST /burst/:cid` e grava a execução com o `total` recebido |
+| `ReceiveBatchItem` | `POST /process` | Grava o item e publica o job, também na duplicata (o `jobId` igual evita um segundo job) |
+| `EnrichBatchItem` | worker `enrichment` | Busca as credenciais do `cid` da execução, chama `/enrich` e finaliza o item |
+| `CloseBatchRun` | após cada item finalizado | `UPDATE … WHERE status = 'OPEN' AND total <= finalizados`: só um job fecha o lote e publica o callback |
+| `SendBatchCallback` | worker `callback` | Monta o resultado ordenado por `seq` e envia `POST /callback`; guarda o relatório |
+| `ResendBatchCallback` | `POST /batches/:runId/callback` | Recoloca o callback na fila |
+| `ReconcileStaleWork` | a cada 30 s | Republica itens parados há mais de 60 s, fecha lotes completos e reenvia callbacks não confirmados |
 
-### Se o lote tivesse 20.000 SKUs
+## Falhas e concorrência
 
-O desenho já evita carregar o lote inteiro: a completude sai de contagem indexada ou de contador atômico, e os itens
-são agregados independentes. Mudariam ainda: leitura do resultado em páginas/stream para montar o callback,
-publicação de jobs em bulk, e monitoramento da vazão. Com 3 requisições simultâneas de ~600 ms, são cerca de 5 itens/s, ou ~1 h por lote.
+| Situação | Tratamento |
+|---|---|
+| Mais de 3 chamadas ao `/enrich` | Impedido por `setGlobalConcurrency(3)`, guardado no Redis e válido para todos os workers |
+| 429 | Pausa a fila pelo `retry-after`; o job volta sem gastar tentativa |
+| 500, timeout (5 s), rede, resposta fora do contrato | Retry com backoff exponencial (500 ms, ×2, jitter 50%), até 10 tentativas |
+| 404 | Item `FAILED`; vai no callback com `price` e `stock` nulos |
+| 401 ou `cid` sem registro | Falha definitiva do job; o item fica `RECEIVED` com `last_error` |
+| Callback com 429, 5xx ou rede | Fila própria, 6 tentativas com backoff a partir de 1 s; outros 4xx são definitivos |
+| Redis fora no `/process` | Publish desiste em 200 ms (`queue.add` esperaria a conexão indefinidamente); o ACK sai e a varredura republica |
+| Job com tentativas esgotadas | A varredura usa `job.retry()`, já que um `add` com o mesmo `jobId` seria ignorado |
+
+`batch_items.attempts` conta as respostas tratadas do `/enrich` (429 não conta). Jobs concluídos ficam 1 h no Redis e falhos, 24 h.
+
+## Escolhas técnicas
+
+- **Nest 11, TypeScript 5.9 e `@nestjs/jwt` 11:** as versões 12 do Nest e do `@nestjs/jwt` são só ESM, o que quebra o Jest; o ts-jest ainda não suporta TS 7.
+- **Jest** em vez de Vitest: o esbuild do Vitest não emite `emitDecoratorMetadata`, necessário para a injeção do Nest nos testes.
+- **Prisma 7** com driver adapter `pg`; `class-validator` nos DTOs e na validação do ambiente.
+- **BullMQ 6:** não aceita `:` em `jobId`, por isso o job usa `run_id-seq` e o domínio mantém `run_id:seq`.
