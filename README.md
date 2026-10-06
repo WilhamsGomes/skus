@@ -1,11 +1,14 @@
 # SKU Enrichment Integration
 
-Serviço que se registra na plataforma, recebe lotes de SKUs em `POST /process`, confirma cada mensagem em milissegundos, enriquece os itens de forma assíncrona (`GET /enrich/:sku`) e devolve o lote consolidado em `POST /callback`. Um painel web acompanha lotes, itens, filas, Redis e entregas.
+Serviço que se registra na plataforma, recebe lotes de SKUs em `POST /process`, confirma cada mensagem em milissegundos, enriquece os itens de forma assíncrona (`GET /enrich/:sku`) e devolve o lote consolidado em `POST /callback`.
+
+O backend é a solução do desafio e funciona sozinho. O painel web e o simulador são ferramentas de apoio: um para visualizar os dados, outro para testar lotes grandes sem depender da plataforma real.
 
 | Pasta | Conteúdo |
 |---|---|
 | [`backend/`](backend/README.md) | NestJS 11, PostgreSQL (Prisma 7), Redis + BullMQ |
-| [`frontend/`](frontend/README.md) | React + Vite: painel de operação com login |
+| [`frontend/`](frontend/README.md) | React + Vite: painel opcional para visualizar os dados (lotes, itens, filas, Redis, entregas) |
+| [`simulator/`](simulator/README.md) | Plataforma falsa local para testar lotes de qualquer tamanho (ex.: 20.000 SKUs) |
 | [`docs/relatorio-melhor-execucao.json`](docs/relatorio-melhor-execucao.json) | Relatório da melhor execução (score 100) |
 
 ## Como executar
@@ -24,13 +27,15 @@ npm run start:dev
 # 2. Túnel público (outro terminal)
 ngrok http 4000
 
-# 3. Painel em http://localhost:5173 (outro terminal) · login admin / admin
+# 3. (Opcional) Painel em http://localhost:5173 (outro terminal) · login admin / admin
 cd frontend
 npm install
 npm run dev
 ```
 
-No painel: **Registro** → informe a URL do ngrok → **Solicitar lote**. A tela do lote mostra os itens chegando e sendo enriquecidos e, ao final, o relatório devolvido pela plataforma. O mesmo fluxo por `curl` está no [README do backend](backend/README.md).
+No painel: **Registro** → informe a URL do ngrok → **Solicitar lote**. O mesmo fluxo por `curl` está no [README do backend](backend/README.md).
+
+**Sobre o painel:** o frontend não faz parte do fluxo de integração; a plataforma conversa só com o backend. Ele é uma forma de ver os dados de maneira mais ampla e detalhada do que logs e consultas no banco: histórico de lotes, cada item com tentativas e erros, estado das filas, memória do Redis e o relatório completo de cada entrega. As duas ações que ele oferece (registrar e solicitar lote) chamam os mesmos endpoints do backend que o `curl`.
 
 ## Fluxo
 
@@ -55,6 +60,31 @@ varredura a cada 30 s ──► republica itens parados, fecha lotes, reenvia ca
 | Falhas | 500 forçado recuperado com retry · 0 respostas 429 · duplicata processada uma única vez |
 
 Todas as execuções registradas tiveram score 100, inclusive uma em que os jobs foram apagados da fila de propósito e a varredura recuperou o lote.
+
+## Simulador (lotes grandes)
+
+A plataforma real envia lotes de 20. Para testar 20.000 SKUs, [`simulator/`](simulator/README.md) traz uma plataforma falsa que implementa os mesmos contratos (`/register`, `/burst`, `/enrich`, `/callback`), com os comportamentos da documentação: 400–800 ms no `/enrich`, 429 acima de 3 em voo, ~10% de 500, 404 para SKU inválido, mensagens fora de ordem e duplicadas, e ~350 ms de túnel somados a cada ACK.
+
+```bash
+cd simulator
+npm run sim -- --skus 100      # lote de 100 com latência real (~25 s)
+npm run sim -- --skus 20000    # 20.000 com latência real (~70 min); sim:20k-fast reduz para ~6 min
+```
+
+**Tudo roda localmente e o backend testado é o código real**, não um mock. O script:
+
+1. compila `backend/src` em `backend/.sim-dist`;
+2. prepara um banco (`sku_simulation`) e um Redis db (`1`) próprios, limpos a cada execução;
+3. sobe a plataforma falsa em `:4100` e uma **cópia do backend** em `:4001`, configurada para tratar a falsa como a plataforma;
+4. faz o papel do operador (login, registro, solicitar lote) e, daí em diante, backend e plataforma falsa conversam sozinhos por HTTP;
+5. imprime o relatório (no mesmo formato do real) e salva em `simulator/reports/`.
+
+O backend principal (`:4000`, banco e Redis db `0`, ligado à plataforma real) não é usado nem alterado e pode continuar rodando. O score do simulador é uma aproximação dos critérios, não o avaliador oficial.
+
+| Execução simulada | Resultado |
+|---|---|
+| 100 SKUs, latência real + túnel | score 100 · ACK p50 470 ms / p95 522 ms · 4,2 itens/s (a plataforma real deu 469/506 ms e ~4 itens/s) |
+| 20.000 SKUs, `/enrich` 20× mais rápido, sem túnel | score 100 · 20.000/20.000 corretos · 2.275 erros 500 recuperados · 0 respostas 429 · 200 duplicatas sem chamada extra · ~58 itens/s |
 
 ## Decisões de arquitetura
 
@@ -81,7 +111,7 @@ Todas as execuções registradas tiveram score 100, inclusive uma em que os jobs
 
 ## E se o lote tivesse 20.000 SKUs?
 
-O limite está no `/enrich`: 3 chamadas em paralelo de ~600 ms dão **~5 itens/s**, ou seja, **~67 min por lote** (~73 min com os retries de 500). Nada no nosso lado deixa isso mais rápido, a não ser fazer menos chamadas; a pergunta passa de "quão rápido" para "aguenta uma hora sem perder nada". ACK, idempotência, limite global, retomada após restart e a varredura já funcionam nessa escala. Mudaria:
+O limite está no `/enrich`: 3 chamadas em paralelo de ~600 ms dão **~5 itens/s**, ou seja, **~67 min por lote** (~73 min com os retries de 500). Nada no nosso lado deixa isso mais rápido, a não ser fazer menos chamadas; a pergunta passa de "quão rápido" para "aguenta uma hora sem perder nada". O [simulador](#simulador-lotes-grandes) confirmou que ACK, idempotência, limite global, retries e fechamento do lote funcionam com 20.000 itens. Ele também mostrou que, enquanto as 20.000 mensagens chegam, o enriquecimento cai de ~58 para ~10 itens/s, porque API e worker dividem o mesmo processo e o mesmo pool do banco (o ACK não sofre). Mudaria:
 
 1. **Contador de finalizados em vez de contagem.** Hoje cada item finalizado conta os itens do lote para decidir se ele fechou: 20.000 contagens de até 20.000 linhas. Um contador em `batch_runs`, incrementado na mesma transação que finaliza o item, reduz a verificação a comparar dois números.
 2. **Cache por SKU dentro do lote.** SKUs repetidos não precisam de outra chamada ao `/enrich`; é a única alavanca de tempo disponível (desde que preço e estoque não mudem durante o lote).
