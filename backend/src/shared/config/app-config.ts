@@ -31,8 +31,11 @@ class EnvironmentVariables {
   @Matches(/^rediss?:\/\/.+/, { message: 'REDIS_URL must be a redis:// or rediss:// URL' })
   REDIS_URL!: string;
 
-  @IsUrl({ protocols: ['https', 'http'], require_protocol: true, require_tld: false })
-  PLATFORM_BASE_URL = 'https://dev-wdu-ped-test-1014944555984.us-central1.run.app';
+  @IsUrl(
+    { protocols: ['https', 'http'], require_protocol: true, require_tld: false },
+    { message: 'PLATFORM_BASE_URL must be the platform Base URL from the challenge documentation' },
+  )
+  PLATFORM_BASE_URL!: string;
 
   @IsString()
   @MinLength(1)

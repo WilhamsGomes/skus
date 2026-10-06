@@ -19,7 +19,13 @@ Pré-requisitos: Docker e uma URL HTTPS pública para o backend (ngrok), porque 
 
 **1. Libere a porta 4000.** Se o backend estiver rodando em modo de desenvolvimento (`npm run start:dev`), pare-o: o container usa a mesma porta.
 
-**2. Suba a stack** na raiz do repositório. A primeira vez leva alguns minutos (build das imagens):
+**2. Configure a plataforma.** Copie o arquivo de variáveis e preencha `PLATFORM_BASE_URL` com a Base URL informada na documentação do desafio (ela não fica no repositório):
+
+```bash
+cp .env.example .env
+```
+
+**3. Suba a stack** na raiz do repositório. A primeira vez leva alguns minutos (build das imagens):
 
 ```bash
 docker compose up -d --build
@@ -38,33 +44,29 @@ docker compose logs -f backend   # deve aparecer "API rodando em http://localhos
 | API e Swagger | http://localhost:4000 · http://localhost:4000/docs |
 | Filas (Bull Board) | http://localhost:4000/queues |
 
-**3. Exponha o backend.** Escolha uma opção:
+**4. Exponha o backend.** Escolha uma opção:
 
 - **ngrok instalado na máquina:** `ngrok http 4000`. A URL HTTPS aparece no terminal.
 - **ngrok pelo compose:** defina `NGROK_AUTHTOKEN` (veja as variáveis abaixo) e rode `docker compose --profile tunnel up -d`. A URL aparece em http://localhost:4041. A conta gratuita permite um túnel por vez: pare o ngrok local antes.
 
-**4. Abra o painel** em http://localhost:8080 e entre com `admin` / `admin`.
+**5. Abra o painel** em http://localhost:8080 e entre com `admin` / `admin`.
 
-**5. Registre o webhook:** menu **Registro** → nome e URL HTTPS do ngrok → **Registrar**. A plataforma chama `<url>/check` nesse momento, então o túnel precisa estar ativo. Se a URL do ngrok não mudou desde o último registro, este passo pode ser pulado.
+**6. Registre o webhook:** menu **Registro** → nome e URL HTTPS do ngrok → **Registrar**. A plataforma chama `<url>/check` nesse momento, então o túnel precisa estar ativo. Se a URL do ngrok não mudou desde o último registro, este passo pode ser pulado.
 
-**6. Solicite um lote:** botão **Solicitar lote** na barra superior. O painel abre o lote e atualiza a cada 3 s; em poucos segundos os itens são enriquecidos, o callback é enviado e o relatório da plataforma aparece com o score.
+**7. Solicite um lote:** botão **Solicitar lote** na barra superior. O painel abre o lote e atualiza a cada 3 s; em poucos segundos os itens são enriquecidos, o callback é enviado e o relatório da plataforma aparece com o score.
 
 **Para parar:** `docker compose down` mantém os dados; `docker compose down -v` apaga banco e Redis.
 
 #### Variáveis de ambiente
 
-Nenhuma é obrigatória para subir a stack: todas têm padrão. Só `NGROK_AUTHTOKEN` é necessária, e apenas para o perfil `tunnel`. Para mudar algum valor, copie o exemplo e edite (o compose lê o `.env` da raiz automaticamente; ele está no `.gitignore`):
-
-```bash
-cp .env.example .env
-```
+Só `PLATFORM_BASE_URL` é obrigatória; `NGROK_AUTHTOKEN` só é necessária com o perfil `tunnel`, e as demais têm padrão. O compose lê o `.env` da raiz automaticamente (ele está no `.gitignore`). Sem `PLATFORM_BASE_URL`, o backend não sobe e o log (`docker compose logs backend`) indica a variável.
 
 | Variável | Padrão | Uso |
 |---|---|---|
 | `NGROK_AUTHTOKEN` | — | Token da conta ngrok; obrigatório só com `--profile tunnel` |
 | `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` | `admin` / `admin` | Login do painel |
 | `AUTH_SECRET` | segredo de desenvolvimento | Assina o token do painel (mínimo 16 caracteres); troque fora do ambiente local |
-| `PLATFORM_BASE_URL` | URL da plataforma do desafio | Plataforma usada pelo backend |
+| `PLATFORM_BASE_URL` | — | **Obrigatória.** Base URL da plataforma, informada na documentação do desafio |
 | `BACKEND_PORT` | `4000` | Porta da API no host; se mudar, aponte o ngrok para a nova porta |
 | `FRONTEND_PORT` | `8080` | Porta do painel no host |
 | `POSTGRES_PORT` / `REDIS_PORT` | `5432` / `6379` | Portas do Postgres e do Redis no host |
@@ -79,7 +81,7 @@ Pré-requisitos: Node.js ≥ 20.19, Docker e ngrok.
 ```bash
 # 1. Backend: Postgres + Redis do compose, migrations e API em http://localhost:4000
 cd backend
-cp .env.example .env
+cp .env.example .env     # preencha PLATFORM_BASE_URL (Base URL da documentação do desafio)
 npm install
 npm run infra:up
 npm run prisma:deploy
@@ -96,7 +98,7 @@ npm run dev
 
 No painel: **Registro** → informe a URL do ngrok → **Solicitar lote**. O mesmo fluxo por `curl` está no [README do backend](backend/README.md).
 
-Neste modo as variáveis ficam em `backend/.env` (criado a partir de `backend/.env.example`; nenhuma precisa ser alterada para rodar localmente), descritas no [README do backend](backend/README.md#configuração). Os dois modos usam o mesmo Postgres e o mesmo Redis (porta 5432 e 6379). Não rode o backend dos dois ao mesmo tempo: ambos usam a porta 4000.
+Neste modo as variáveis ficam em `backend/.env` (criado a partir de `backend/.env.example`; só `PLATFORM_BASE_URL` precisa ser preenchida), descritas no [README do backend](backend/README.md#configuração). Os dois modos usam o mesmo Postgres e o mesmo Redis (porta 5432 e 6379). Não rode o backend dos dois ao mesmo tempo: ambos usam a porta 4000.
 
 **Sobre o painel:** o frontend não faz parte do fluxo de integração; a plataforma conversa só com o backend. Ele é uma forma de ver os dados de maneira mais ampla e detalhada do que logs e consultas no banco: histórico de lotes, cada item com tentativas e erros, estado das filas, memória do Redis e o relatório completo de cada entrega. As duas ações que ele oferece (registrar e solicitar lote) chamam os mesmos endpoints do backend que o `curl`.
 

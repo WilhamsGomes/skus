@@ -39,7 +39,7 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://sku:sku@postgres:5432/sku_integration?schema=public
       REDIS_URL: redis://redis:6379
-      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://dev-wdu-ped-test-1014944555984.us-central1.run.app}
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-}
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-admin}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-admin}
       AUTH_SECRET: ${AUTH_SECRET:-dev-only-secret-change-me}

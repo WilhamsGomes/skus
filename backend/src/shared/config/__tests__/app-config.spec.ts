@@ -4,6 +4,7 @@ describe('loadAppConfig', () => {
   const valid = {
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/db?schema=public',
     REDIS_URL: 'redis://localhost:6379',
+    PLATFORM_BASE_URL: 'https://platform.test',
   };
 
   it('parses a valid environment and applies defaults', () => {
@@ -11,7 +12,7 @@ describe('loadAppConfig', () => {
       port: 4000,
       databaseUrl: valid.DATABASE_URL,
       redisUrl: valid.REDIS_URL,
-      platformBaseUrl: 'https://dev-wdu-ped-test-1014944555984.us-central1.run.app',
+      platformBaseUrl: 'https://platform.test',
       dashboardUsername: 'admin',
       dashboardPassword: 'admin',
       authSecret: 'dev-only-secret-change-me',
@@ -26,6 +27,12 @@ describe('loadAppConfig', () => {
     expect(loadAppConfig({ ...valid, PLATFORM_BASE_URL: 'http://localhost:9000/' }).platformBaseUrl).toBe(
       'http://localhost:9000',
     );
+  });
+
+  it('requires PLATFORM_BASE_URL', () => {
+    const { PLATFORM_BASE_URL: _, ...withoutPlatform } = valid;
+
+    expect(() => loadAppConfig(withoutPlatform)).toThrow(/PLATFORM_BASE_URL must be the platform Base URL/);
   });
 
   it('rejects a short AUTH_SECRET', () => {

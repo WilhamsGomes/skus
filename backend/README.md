@@ -9,7 +9,7 @@ Visão geral, melhor execução, decisões, trade-offs e o cenário de 20.000 SK
 Pré-requisitos: Node.js ≥ 20.19 e Docker.
 
 ```bash
-cp .env.example .env
+cp .env.example .env     # preencha PLATFORM_BASE_URL com a Base URL da documentação do desafio
 npm install              # também gera o Prisma Client
 npm run infra:up         # Postgres + Redis, aguarda os healthchecks
 npm run prisma:deploy    # aplica as migrations
@@ -49,7 +49,7 @@ curl -X POST http://localhost:4000/batches -H "authorization: Bearer $TOKEN"
 | `PORT` | `4000` | |
 | `DATABASE_URL` | — | `postgresql://…` (obrigatória) |
 | `REDIS_URL` | — | `redis://…` (obrigatória) |
-| `PLATFORM_BASE_URL` | URL da plataforma do desafio | o simulador aponta para a plataforma falsa |
+| `PLATFORM_BASE_URL` | — | **obrigatória**: a Base URL da documentação do desafio (o simulador aponta para a plataforma falsa) |
 | `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` | `admin` / `admin` | login único |
 | `AUTH_SECRET` | segredo de desenvolvimento | assina o JWT; mínimo 16 caracteres |
 

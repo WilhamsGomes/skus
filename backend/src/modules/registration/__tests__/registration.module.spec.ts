@@ -13,6 +13,7 @@ describe('RegistrationModule wiring', () => {
   beforeAll(() => {
     process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/db';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
+    process.env.PLATFORM_BASE_URL ??= 'https://platform.test';
   });
 
   it('binds each port to its adapter and builds the use case', async () => {
