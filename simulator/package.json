@@ -1,0 +1,11 @@
+{
+  "name": "sku-platform-simulator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sim": "node run.mjs",
+    "sim:quick": "node run.mjs --skus 100 --latency-scale 0.1",
+    "sim:20k-fast": "node run.mjs --skus 20000 --latency-scale 0.05",
+    "sim:20k": "node run.mjs --skus 20000"
+  }
+}
